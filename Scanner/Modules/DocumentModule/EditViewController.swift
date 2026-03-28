@@ -2,12 +2,12 @@
 //  EditViewController.swift
 //  Scanner
 //
-//  Multi-image editor shown after scanning.
+//  Multi-image editor shown directly after scanning.
 //  Features:
 //    • Horizontal paging through all captured images
-//    • Bottom filter bar (original / grayscale / B&W / enhanced)
+//    • Bottom filter bar per-page (original / grayscale / B&W / enhanced / …)
 //    • Crop (interactive quadrilateral adjustment)
-//    • Right nav bar: share (current PDF), save
+//    • Nav bar: 完成 (save + exit), 分享PDF (share as PDF)
 //
 
 import UIKit
@@ -24,18 +24,23 @@ final class EditViewController: BaseViewController {
 
     weak var editDelegate: EditViewControllerDelegate?
 
+    private(set) var documentId: Int64?
+    private(set) var documentName: String
+
     private var images: [UIImage]
     private var originalImages: [UIImage]
-    private let documentName: String
 
     private var currentPage: Int = 0 {
         didSet {
             pageLabel.text = "\(currentPage + 1) / \(images.count)"
             updateFilterSelection()
+            if oldValue != currentPage {
+                generateFilterThumbnails()
+            }
         }
     }
 
-    /// Tracks which filter is applied to each page (-1 = none yet).
+    /// Tracks which filter is applied to each page (0 = original).
     private var appliedFilterIndex: [Int]
 
     // MARK: - UI
@@ -72,7 +77,7 @@ final class EditViewController: BaseViewController {
         let stack = UIStackView()
         stack.axis = .horizontal
         stack.spacing = 12
-        stack.alignment = .center
+        stack.alignment = .fill
         return stack
     }()
 
@@ -92,11 +97,15 @@ final class EditViewController: BaseViewController {
 
     // MARK: - Init
 
-    init(images: [UIImage], documentName: String) {
+    init(images: [UIImage], documentName: String, documentId: Int64? = nil) {
         self.images = images
-        self.originalImages = images
+        self.originalImages = images.map { img in
+            guard let cgImage = img.cgImage else { return img }
+            return UIImage(cgImage: cgImage, scale: img.scale, orientation: img.imageOrientation)
+        }
         self.appliedFilterIndex = Array(repeating: 0, count: images.count)
         self.documentName = documentName
+        self.documentId = documentId
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -110,25 +119,17 @@ final class EditViewController: BaseViewController {
         title = documentName
         navigationItem.largeTitleDisplayMode = .never
 
-        // Nav buttons
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: "取消", style: .plain, target: self, action: #selector(cancelTapped)
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: "分享PDF", style: .plain,
+            target: self, action: #selector(shareTapped)
         )
-
-        let shareBtn = UIBarButtonItem(
-            barButtonSystemItem: .action, target: self, action: #selector(shareTapped)
-        )
-        let saveBtn = UIBarButtonItem(
-            title: "保存", style: .done, target: self, action: #selector(saveTapped)
-        )
-        navigationItem.rightBarButtonItems = [saveBtn, shareBtn]
 
         view.addSubview(collectionView)
         view.addSubview(bottomContainer)
         bottomContainer.addSubview(pageLabel)
-        bottomContainer.addSubview(toolBar)
         bottomContainer.addSubview(filterScrollView)
         filterScrollView.addSubview(filterStack)
+        bottomContainer.addSubview(toolBar)
 
         setupFilterButtons()
         setupToolButtons()
@@ -139,7 +140,6 @@ final class EditViewController: BaseViewController {
     override func setupConstraints() {
         bottomContainer.snp.makeConstraints { make in
             make.leading.trailing.bottom.equalToSuperview()
-            make.height.equalTo(160)
         }
 
         collectionView.snp.makeConstraints { make in
@@ -154,21 +154,24 @@ final class EditViewController: BaseViewController {
             make.height.equalTo(20)
         }
 
-        toolBar.snp.makeConstraints { make in
-            make.top.equalTo(pageLabel.snp.bottom).offset(4)
-            make.leading.trailing.equalToSuperview()
-            make.height.equalTo(50)
-        }
-
         filterScrollView.snp.makeConstraints { make in
-            make.top.equalTo(toolBar.snp.bottom).offset(4)
+            make.top.equalTo(pageLabel.snp.bottom).offset(8)
             make.leading.trailing.equalToSuperview()
-            make.height.equalTo(60)
+            make.height.equalTo(76)
         }
 
         filterStack.snp.makeConstraints { make in
-            make.edges.equalToSuperview().inset(UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
+            make.top.bottom.equalToSuperview()
+            make.leading.equalToSuperview().offset(16)
+            make.trailing.equalToSuperview().offset(-16)
             make.height.equalToSuperview()
+        }
+
+        toolBar.snp.makeConstraints { make in
+            make.top.equalTo(filterScrollView.snp.bottom).offset(4)
+            make.leading.trailing.equalToSuperview()
+            make.height.equalTo(50)
+            make.bottom.equalTo(view.safeAreaLayoutGuide.snp.bottom).offset(-4)
         }
     }
 
@@ -217,7 +220,8 @@ final class EditViewController: BaseViewController {
     private func setupFilterButtons() {
         for (i, filterType) in ImageFilterType.allCases.enumerated() {
             let container = UIView()
-            container.snp.makeConstraints { $0.width.equalTo(60) }
+            container.tag = i
+            container.isUserInteractionEnabled = true
 
             let imgView = UIImageView()
             imgView.contentMode = .scaleAspectFill
@@ -236,30 +240,38 @@ final class EditViewController: BaseViewController {
             label.textAlignment = .center
             container.addSubview(label)
 
+            filterStack.addArrangedSubview(container)
+
+            container.snp.makeConstraints { make in
+                make.width.equalTo(60)
+            }
+
             imgView.snp.makeConstraints { make in
-                make.top.centerX.equalToSuperview()
-                make.width.height.equalTo(40)
+                make.top.equalToSuperview().offset(4)
+                make.centerX.equalToSuperview()
+                make.width.height.equalTo(44)
             }
             label.snp.makeConstraints { make in
-                make.top.equalTo(imgView.snp.bottom).offset(2)
+                make.top.equalTo(imgView.snp.bottom).offset(4)
                 make.centerX.equalToSuperview()
             }
 
             let tap = UITapGestureRecognizer(target: self, action: #selector(filterItemTapped(_:)))
-            container.tag = i
             container.addGestureRecognizer(tap)
-            container.isUserInteractionEnabled = true
-
-            filterStack.addArrangedSubview(container)
         }
 
         generateFilterThumbnails()
     }
 
+    private var thumbnailGeneration: Int = 0
+
     private func generateFilterThumbnails() {
-        guard let firstImage = originalImages.first else { return }
-        let thumbSize = CGSize(width: 80, height: 80)
-        let thumb = firstImage.resized(to: thumbSize)
+        guard currentPage < originalImages.count else { return }
+        let sourceImage = originalImages[currentPage]
+        let thumbSize = CGSize(width: 88, height: 88)
+        let thumb = sourceImage.resized(to: thumbSize)
+        thumbnailGeneration += 1
+        let generation = thumbnailGeneration
 
         DispatchQueue.global(qos: .userInitiated).async {
             let filters = ImageFilterType.allCases
@@ -268,12 +280,13 @@ final class EditViewController: BaseViewController {
                 thumbnails.append(ImageFilterManager.shared.apply(filter, to: thumb))
             }
             DispatchQueue.main.async { [weak self] in
+                guard let self, generation == self.thumbnailGeneration else { return }
                 for (i, img) in thumbnails.enumerated() {
-                    if let iv = self?.filterStack.arrangedSubviews[safe: i]?.viewWithTag(100 + i) as? UIImageView {
+                    if let iv = self.filterStack.arrangedSubviews[safe: i]?.viewWithTag(100 + i) as? UIImageView {
                         iv.image = img
                     }
                 }
-                self?.updateFilterSelection()
+                self.updateFilterSelection()
             }
         }
     }
@@ -287,17 +300,16 @@ final class EditViewController: BaseViewController {
         }
     }
 
+    // MARK: - Lifecycle
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if isMovingFromParent {
+            editDelegate?.editViewController(self, didFinishWith: images)
+        }
+    }
+
     // MARK: - Actions
-
-    @objc private func cancelTapped() {
-        editDelegate?.editViewControllerDidCancel(self)
-        navigationController?.popViewController(animated: true)
-    }
-
-    @objc private func saveTapped() {
-        editDelegate?.editViewController(self, didFinishWith: images)
-        navigationController?.popViewController(animated: true)
-    }
 
     @objc private func shareTapped() {
         HUD.shared.showLoading(message: "生成PDF...")
@@ -313,7 +325,7 @@ final class EditViewController: BaseViewController {
                 }
                 let activityVC = UIActivityViewController(activityItems: [tmpURL], applicationActivities: nil)
                 if let popover = activityVC.popoverPresentationController {
-                    popover.barButtonItem = self.navigationItem.rightBarButtonItems?.last
+                    popover.barButtonItem = self.navigationItem.rightBarButtonItem
                 }
                 self.present(activityVC, animated: true)
             }

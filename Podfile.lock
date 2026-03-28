@@ -4,6 +4,7 @@ PODS:
     - Moya/Core (= 15.0.0)
   - Moya/Core (15.0.0):
     - Alamofire (~> 5.0)
+  - OpenCV (4.3.0)
   - OptimizedSQLCipher (1.2.2)
   - SnapKit (5.7.1)
   - SQLiteRepair (1.2.2):
@@ -14,6 +15,7 @@ PODS:
 
 DEPENDENCIES:
   - Moya
+  - OpenCV (~> 4.3.0)
   - SnapKit
   - WCDBSwift
 
@@ -21,6 +23,7 @@ SPEC REPOS:
   trunk:
     - Alamofire
     - Moya
+    - OpenCV
     - OptimizedSQLCipher
     - SnapKit
     - SQLiteRepair
@@ -29,11 +32,12 @@ SPEC REPOS:
 SPEC CHECKSUMS:
   Alamofire: eec6cd8f73b242b59e34153a606a909eb9864b14
   Moya: 138f0573e53411fb3dc17016add0b748dfbd78ee
+  OpenCV: 681e0451c1e54c5930a8922277f817ed5d5ab459
   OptimizedSQLCipher: 92a1bf5cc94139e1da49de9c883ff9891bcd2a37
   SnapKit: d612e99e678a2d3b95bf60b0705ed0a35c03484a
   SQLiteRepair: 65ac4472667ac8cdeb93c3765f2fcae4dd259204
   WCDBSwift: 6687dc2d4bebce2b237017ca367730f5f8409e67
 
-PODFILE CHECKSUM: adb521aa38d8fa1fb8d56dbc99cd5b553ac2d811
+PODFILE CHECKSUM: e8396770a3735499e9bf753bfdbace08229fa445
 
 COCOAPODS: 1.16.2

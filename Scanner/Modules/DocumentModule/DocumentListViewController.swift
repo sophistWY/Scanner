@@ -4,6 +4,7 @@
 //
 
 import UIKit
+import PDFKit
 import SnapKit
 
 final class DocumentListViewController: BaseViewController {
@@ -73,14 +74,12 @@ final class DocumentListViewController: BaseViewController {
         title = "我的文档"
         navigationController?.navigationBar.prefersLargeTitles = true
 
-        // Add button
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .add,
             target: self,
             action: #selector(addButtonTapped)
         )
 
-        // Sort button
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "arrow.up.arrow.down"),
             style: .plain,
@@ -147,6 +146,39 @@ final class DocumentListViewController: BaseViewController {
             self.navigationController?.pushViewController(scanVC, animated: true)
         }
     }
+
+    // MARK: - Open Document
+
+    private func openDocument(_ doc: DocumentModel) {
+        guard let pdfDoc = PDFDocument(url: doc.pdfURL), pdfDoc.pageCount > 0 else {
+            showAlert(title: "错误", message: "无法打开文档")
+            return
+        }
+
+        var images: [UIImage] = []
+        for i in 0..<pdfDoc.pageCount {
+            guard let page = pdfDoc.page(at: i) else { continue }
+            let box = page.bounds(for: .mediaBox)
+            let renderer = UIGraphicsImageRenderer(size: box.size)
+            let img = renderer.image { ctx in
+                UIColor.white.set()
+                ctx.fill(box)
+                ctx.cgContext.translateBy(x: 0, y: box.height)
+                ctx.cgContext.scaleBy(x: 1, y: -1)
+                page.draw(with: .mediaBox, to: ctx.cgContext)
+            }
+            images.append(img)
+        }
+
+        guard !images.isEmpty else {
+            showAlert(title: "错误", message: "文档内容为空")
+            return
+        }
+
+        let editVC = EditViewController(images: images, documentName: doc.name, documentId: doc.id)
+        editVC.editDelegate = self
+        navigationController?.pushViewController(editVC, animated: true)
+    }
 }
 
 // MARK: - UITableViewDataSource & UITableViewDelegate
@@ -167,9 +199,7 @@ extension DocumentListViewController: UITableViewDataSource, UITableViewDelegate
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let doc = viewModel.documents.value[indexPath.row]
-        let detailVC = DocumentDetailViewController(document: doc)
-        detailVC.detailDelegate = self
-        navigationController?.pushViewController(detailVC, animated: true)
+        openDocument(doc)
     }
 
     func tableView(
@@ -215,22 +245,14 @@ extension DocumentListViewController: ScanViewControllerDelegate {
         pendingScanImages = images
     }
 
-    /// Called after ScanVC pop animation finishes — safe to present alert here.
     private func handlePendingScanImages() {
         guard let images = pendingScanImages else { return }
         pendingScanImages = nil
 
-        showTextFieldAlert(
-            title: "保存文档",
-            message: "请输入文档名称",
-            placeholder: "文档名称",
-            defaultText: "扫描文档_\(Date().formatted(style: .short))"
-        ) { [weak self] name in
-            guard let self else { return }
-            let editVC = EditViewController(images: images, documentName: name)
-            editVC.editDelegate = self
-            self.navigationController?.pushViewController(editVC, animated: true)
-        }
+        let name = "扫描文档_\(Date().formatted(style: .short))"
+        let editVC = EditViewController(images: images, documentName: name)
+        editVC.editDelegate = self
+        navigationController?.pushViewController(editVC, animated: true)
     }
 
     func scanViewControllerDidCancel(_ vc: ScanViewController) {}
@@ -241,15 +263,10 @@ extension DocumentListViewController: ScanViewControllerDelegate {
 extension DocumentListViewController: EditViewControllerDelegate {
 
     func editViewController(_ vc: EditViewController, didFinishWith images: [UIImage]) {
-        let name = vc.title ?? "扫描文档"
-        HUD.shared.showLoading(message: "正在生成PDF...")
-        viewModel.createDocument(name: name, images: images) { success in
-            HUD.shared.hideLoading()
-            if success {
-                HUD.shared.showSuccess("保存成功")
-            } else {
-                HUD.shared.showError("保存失败")
-            }
+        if let docId = vc.documentId {
+            viewModel.updateDocument(id: docId, name: vc.documentName, images: images) { _ in }
+        } else {
+            viewModel.createDocument(name: vc.documentName, images: images) { _ in }
         }
     }
 

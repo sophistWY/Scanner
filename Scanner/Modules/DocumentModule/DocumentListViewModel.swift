@@ -64,6 +64,49 @@ final class DocumentListViewModel: BaseViewModel {
         loadDocuments()
     }
 
+    func updateDocument(id: Int64, name: String, images: [UIImage], completion: @escaping (Bool) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let oldDoc = WCDBManager.shared.getDocument(byId: id) else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+
+            let timestamp = String.uniqueFileName(prefix: "doc", extension: nil)
+            let pdfRelativePath = "\(AppConstants.Directory.pdfs)/\(timestamp).pdf"
+            let thumbRelativePath = "\(AppConstants.Directory.scans)/\(timestamp)_thumb.jpg"
+            let pdfURL = FileHelper.shared.documentsDirectory.appendingPathComponent(pdfRelativePath)
+
+            guard PDFGenerator.shared.generatePDF(from: images, outputURL: pdfURL) else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+
+            if let firstImage = images.first {
+                let thumb = firstImage.resized(to: CGSize(width: 200, height: 200))
+                _ = FileHelper.shared.saveImage(thumb, name: "\(timestamp)_thumb.jpg",
+                                                directory: FileHelper.shared.scansDirectory,
+                                                quality: AppConstants.ImageCompression.lowQuality)
+            }
+
+            let success = WCDBManager.shared.updateDocumentContent(
+                id: id, filePath: pdfRelativePath,
+                thumbnailPath: thumbRelativePath, pageCount: images.count
+            )
+
+            if success {
+                FileHelper.shared.deleteFile(at: oldDoc.pdfURL)
+                FileHelper.shared.deleteFile(at: oldDoc.thumbnailURL)
+            } else {
+                FileHelper.shared.deleteFile(at: pdfURL)
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                if success { self?.loadDocuments() }
+                completion(success)
+            }
+        }
+    }
+
     /// Create a new document from scanned images:
     /// 1. Save first image as thumbnail
     /// 2. Generate PDF

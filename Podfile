@@ -11,6 +11,8 @@ target 'Scanner' do
 
   # Networking
   pod 'Moya'
+  
+  pod 'OpenCV', '~> 4.3.0'
 
 end
 

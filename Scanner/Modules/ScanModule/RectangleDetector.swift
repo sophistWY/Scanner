@@ -77,29 +77,26 @@ final class RectangleDetector {
     private var _isEnabled: Bool = true
     private var isProcessing = false
 
-    // Heavy smoothing: lower = smoother. 0.25 means 75% old + 25% new.
-    private let smoothingFactor: CGFloat = 0.25
+    private let smoothingFactor: CGFloat = 0.4
     private var smoothedRect: DetectedRectangle?
 
-    // How many consecutive missing frames before we clear. 30 frames ≈ 2s at 15fps.
-    private let missingFrameThreshold = 30
+    private let missingFrameThreshold = 12
     private var consecutiveMissingFrames = 0
 
     private var lastProcessTime: CFAbsoluteTime = 0
-    private let minProcessInterval: CFTimeInterval = 0.06
+    private let minProcessInterval: CFTimeInterval = 0.033
 
-    // Minimum area (normalised 0...1) to accept a rectangle; reject tiny noise.
-    private let minimumNormalizedArea: CGFloat = 0.05
+    private let minimumNormalizedArea: CGFloat = 0.015
 
     private lazy var rectangleRequest: VNDetectRectanglesRequest = {
         let request = VNDetectRectanglesRequest { [weak self] request, error in
             self?.handleDetectionResult(request: request, error: error)
         }
-        request.maximumObservations = 3
-        request.minimumConfidence = 0.5
-        request.minimumAspectRatio = 0.2
+        request.maximumObservations = 5
+        request.minimumConfidence = 0.3
+        request.minimumAspectRatio = 0.1
         request.maximumAspectRatio = 1.0
-        request.quadratureTolerance = 45
+        request.quadratureTolerance = 55
         return request
     }()
 
@@ -141,21 +138,23 @@ final class RectangleDetector {
             }
             let handler = VNImageRequestHandler(ciImage: ciImage, options: [:])
             let request = VNDetectRectanglesRequest()
-            request.maximumObservations = 1
-            request.minimumConfidence = 0.4
-            request.minimumAspectRatio = 0.2
-            request.quadratureTolerance = 45
+            request.maximumObservations = 3
+            request.minimumConfidence = 0.2
+            request.minimumAspectRatio = 0.1
+            request.quadratureTolerance = 55
 
             do {
                 try handler.perform([request])
-                guard let observation = request.results?.first else {
+                let observations = request.results ?? []
+                let candidates = observations.map { self.convertToUIKit(observation: $0) }
+                guard let best = candidates.max(by: { $0.normalizedArea < $1.normalizedArea }),
+                      best.normalizedArea >= 0.01 else {
                     DispatchQueue.main.async { completion(nil) }
                     return
                 }
 
-                let rect = self.convertToUIKit(observation: observation)
                 let imageSize = CGSize(width: ciImage.extent.width, height: ciImage.extent.height)
-                let pixelRect = rect.scaled(to: imageSize)
+                let pixelRect = best.scaled(to: imageSize)
 
                 DispatchQueue.main.async { completion(pixelRect) }
             } catch {

@@ -425,12 +425,17 @@ extension ScanViewController: CameraManagerDelegate {
             rectangleDetector.detectInImage(image) { [weak self] rect in
                 guard let self else { return }
                 if let rect = rect {
-                    let cropped = ImageCropper.perspectiveCorrectedImage(from: image, rectangle: rect)
-                    self.viewModel.addCapturedImage(cropped ?? image)
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let cropped = ImageCropper.perspectiveCorrectedImage(from: image, rectangle: rect)
+                        DispatchQueue.main.async {
+                            self.viewModel.addCapturedImage(cropped ?? image)
+                            self.viewModel.canCapture.value = true
+                        }
+                    }
                 } else {
                     self.viewModel.addCapturedImage(image)
+                    self.viewModel.canCapture.value = true
                 }
-                self.viewModel.canCapture.value = true
             }
         } else {
             viewModel.addCapturedImage(image)

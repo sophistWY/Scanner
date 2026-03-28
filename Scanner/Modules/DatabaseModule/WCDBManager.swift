@@ -95,6 +95,30 @@ final class WCDBManager {
         }
     }
 
+    @discardableResult
+    func updateDocumentContent(id: Int64, filePath: String, thumbnailPath: String, pageCount: Int) -> Bool {
+        do {
+            let update = DocumentModel()
+            update.filePath = filePath
+            update.thumbnailPath = thumbnailPath
+            update.pageCount = pageCount
+            update.updateTime = Date()
+            try database.update(
+                table: documentTable,
+                on: DocumentModel.Properties.filePath,
+                    DocumentModel.Properties.thumbnailPath,
+                    DocumentModel.Properties.pageCount,
+                    DocumentModel.Properties.updateTime,
+                with: update,
+                where: DocumentModel.Properties.id == id
+            )
+            return true
+        } catch {
+            Logger.shared.log("Update content error: \(error.localizedDescription)", level: .error)
+            return false
+        }
+    }
+
     // MARK: - Delete
 
     @discardableResult
