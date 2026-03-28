@@ -51,53 +51,41 @@ final class ImageFilterManager {
 
     // MARK: - Filters
 
-    /// Simple grayscale conversion using CIColorMonochrome or desaturation.
     private func applyGrayscale(_ input: CIImage) -> CIImage? {
-        let filter = CIFilter(name: "CIColorControls")!
+        guard let filter = CIFilter(name: "CIColorControls") else { return nil }
         filter.setValue(input, forKey: kCIInputImageKey)
-        filter.setValue(0.0, forKey: kCIInputSaturationKey) // full desaturation
-        filter.setValue(0.05, forKey: kCIInputContrastKey)   // slight contrast boost
+        filter.setValue(0.0, forKey: kCIInputSaturationKey)
+        filter.setValue(0.05, forKey: kCIInputContrastKey)
         return filter.outputImage
     }
 
-    /// High-contrast black & white: desaturate, boost contrast, then threshold.
     private func applyBlackWhiteEnhance(_ input: CIImage) -> CIImage? {
-        // Step 1: desaturate
-        let desat = CIFilter(name: "CIColorControls")!
+        guard let desat = CIFilter(name: "CIColorControls") else { return nil }
         desat.setValue(input, forKey: kCIInputImageKey)
         desat.setValue(0.0, forKey: kCIInputSaturationKey)
         desat.setValue(0.6, forKey: kCIInputContrastKey)
         desat.setValue(0.05, forKey: kCIInputBrightnessKey)
 
-        guard let desatOutput = desat.outputImage else { return nil }
-
-        // Step 2: sharpen for crisp edges
-        let sharpen = CIFilter(name: "CISharpenLuminance")!
+        guard let desatOutput = desat.outputImage,
+              let sharpen = CIFilter(name: "CISharpenLuminance") else { return nil }
         sharpen.setValue(desatOutput, forKey: kCIInputImageKey)
         sharpen.setValue(0.8, forKey: kCIInputSharpnessKey)
-
         return sharpen.outputImage
     }
 
-    /// Document enhancement: adaptive tone mapping + sharpening for text readability.
     private func applyDocumentEnhance(_ input: CIImage) -> CIImage? {
-        // Step 1: exposure correction to brighten the page
-        let exposure = CIFilter(name: "CIExposureAdjust")!
+        guard let exposure = CIFilter(name: "CIExposureAdjust") else { return nil }
         exposure.setValue(input, forKey: kCIInputImageKey)
         exposure.setValue(0.3, forKey: kCIInputEVKey)
 
-        guard let exposureOutput = exposure.outputImage else { return nil }
-
-        // Step 2: increase contrast and slightly desaturate
-        let color = CIFilter(name: "CIColorControls")!
+        guard let exposureOutput = exposure.outputImage,
+              let color = CIFilter(name: "CIColorControls") else { return nil }
         color.setValue(exposureOutput, forKey: kCIInputImageKey)
         color.setValue(0.3, forKey: kCIInputContrastKey)
         color.setValue(0.7, forKey: kCIInputSaturationKey)
 
-        guard let colorOutput = color.outputImage else { return nil }
-
-        // Step 3: unsharp mask for text sharpness
-        let unsharp = CIFilter(name: "CIUnsharpMask")!
+        guard let colorOutput = color.outputImage,
+              let unsharp = CIFilter(name: "CIUnsharpMask") else { return nil }
         unsharp.setValue(colorOutput, forKey: kCIInputImageKey)
         unsharp.setValue(2.5, forKey: kCIInputRadiusKey)
         unsharp.setValue(0.5, forKey: kCIInputIntensityKey)

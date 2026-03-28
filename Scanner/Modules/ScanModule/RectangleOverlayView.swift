@@ -136,7 +136,9 @@ final class RectangleOverlayView: UIView {
         shapeLayer.opacity = 0.0
 
         for corner in cornerLayers {
-            corner.add(fadeOut.copy() as! CAAnimation, forKey: "fadeOut")
+            if let copy = fadeOut.copy() as? CAAnimation {
+                corner.add(copy, forKey: "fadeOut")
+            }
             corner.opacity = 0.0
         }
     }

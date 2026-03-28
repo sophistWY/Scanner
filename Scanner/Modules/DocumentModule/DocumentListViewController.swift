@@ -163,6 +163,7 @@ extension DocumentListViewController: UITableViewDataSource, UITableViewDelegate
         tableView.deselectRow(at: indexPath, animated: true)
         let doc = viewModel.documents.value[indexPath.row]
         let detailVC = DocumentDetailViewController(document: doc)
+        detailVC.detailDelegate = self
         navigationController?.pushViewController(detailVC, animated: true)
     }
 
@@ -224,7 +225,18 @@ extension DocumentListViewController: ScanViewControllerDelegate {
         }
     }
 
-    func scanViewControllerDidCancel(_ vc: ScanViewController) {
-        // Nothing special needed
+    func scanViewControllerDidCancel(_ vc: ScanViewController) {}
+}
+
+// MARK: - DocumentDetailDelegate
+
+extension DocumentListViewController: DocumentDetailDelegate {
+
+    func documentDetailDidDelete(_ vc: DocumentDetailViewController) {
+        viewModel.loadDocuments()
+    }
+
+    func documentDetail(_ vc: DocumentDetailViewController, didRenameTo name: String) {
+        viewModel.loadDocuments()
     }
 }

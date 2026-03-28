@@ -5,21 +5,14 @@
 //  Camera scan screen. Integrates CameraManager, RectangleDetector,
 //  and RectangleOverlayView to provide real-time document scanning.
 //
-//  Usage:
-//    let vc = ScanViewController(scanType: .document)
-//    // .document  -> real-time rectangle detection + auto crop
-//    // .bankCard  -> plain photo capture
-//    // .businessLicense -> plain photo capture
-//
 
 import UIKit
 import SnapKit
 import AVFoundation
+import PhotosUI
 
 protocol ScanViewControllerDelegate: AnyObject {
-    /// Called when the user finishes scanning with one or more images.
     func scanViewController(_ vc: ScanViewController, didFinishWith images: [UIImage])
-    /// Called when the user cancels scanning.
     func scanViewControllerDidCancel(_ vc: ScanViewController)
 }
 
@@ -82,6 +75,15 @@ final class ScanViewController: BaseViewController {
         btn.setImage(UIImage(systemName: "bolt.slash.fill", withConfiguration: config), for: .normal)
         btn.tintColor = .white
         btn.addTarget(self, action: #selector(torchTapped), for: .touchUpInside)
+        return btn
+    }()
+
+    private lazy var galleryButton: UIButton = {
+        let btn = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 20)
+        btn.setImage(UIImage(systemName: "photo.on.rectangle", withConfiguration: config), for: .normal)
+        btn.tintColor = .white
+        btn.addTarget(self, action: #selector(galleryTapped), for: .touchUpInside)
         return btn
     }()
 
@@ -164,20 +166,14 @@ final class ScanViewController: BaseViewController {
     override func setupUI() {
         view.backgroundColor = .black
 
-        // Camera preview
         view.addSubview(previewContainerView)
         previewContainerView.layer.addSublayer(cameraManager.previewLayer)
-
-        // Rectangle overlay (on top of preview)
         previewContainerView.addSubview(overlayView)
 
-        // Status label (on top of preview)
         view.addSubview(statusLabel)
-
-        // Torch button (top right)
         view.addSubview(torchButton)
+        view.addSubview(galleryButton)
 
-        // Bottom bar
         view.addSubview(bottomBar)
         bottomBar.addSubview(cancelButton)
         bottomBar.addSubview(shutterButton)
@@ -185,14 +181,10 @@ final class ScanViewController: BaseViewController {
         bottomBar.addSubview(thumbnailButton)
         bottomBar.addSubview(countBadge)
 
-        // Configure delegates
         cameraManager.delegate = self
         rectangleDetector.delegate = self
-
-        // Enable rectangle detection only for document scan mode
         rectangleDetector.isEnabled = viewModel.scanType.needsRectangleDetection
 
-        // Tap to focus
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(previewTapped(_:)))
         previewContainerView.addGestureRecognizer(tapGesture)
     }
@@ -216,6 +208,12 @@ final class ScanViewController: BaseViewController {
 
         torchButton.snp.makeConstraints { make in
             make.trailing.equalToSuperview().offset(-20)
+            make.centerY.equalTo(statusLabel)
+            make.width.height.equalTo(44)
+        }
+
+        galleryButton.snp.makeConstraints { make in
+            make.leading.equalToSuperview().offset(20)
             make.centerY.equalTo(statusLabel)
             make.width.height.equalTo(44)
         }
@@ -267,8 +265,8 @@ final class ScanViewController: BaseViewController {
         viewModel.isTorchOn.bind { [weak self] isOn in
             self?.cameraManager.setTorch(on: isOn)
             let iconName = isOn ? "bolt.fill" : "bolt.slash.fill"
-            let config = UIImage.SymbolConfiguration(pointSize: 20)
-            self?.torchButton.setImage(UIImage(systemName: iconName, withConfiguration: config), for: .normal)
+            let cfg = UIImage.SymbolConfiguration(pointSize: 20)
+            self?.torchButton.setImage(UIImage(systemName: iconName, withConfiguration: cfg), for: .normal)
             self?.torchButton.tintColor = isOn ? .systemYellow : .white
         }
 
@@ -294,28 +292,13 @@ final class ScanViewController: BaseViewController {
 
     @objc private func shutterTapped() {
         viewModel.canCapture.value = false
-
-        // Brief visual feedback
-        let flashView = UIView(frame: previewContainerView.bounds)
-        flashView.backgroundColor = .white
-        flashView.alpha = 0
-        previewContainerView.addSubview(flashView)
-
-        UIView.animate(withDuration: 0.1, animations: {
-            flashView.alpha = 0.6
-        }) { _ in
-            UIView.animate(withDuration: 0.1) {
-                flashView.alpha = 0
-            } completion: { _ in
-                flashView.removeFromSuperview()
-            }
-        }
-
+        showCaptureFlash()
         cameraManager.capturePhoto()
     }
 
     @objc private func cancelTapped() {
         if viewModel.capturedImages.value.isEmpty {
+            scanDelegate?.scanViewControllerDidCancel(self)
             dismissScan()
         } else {
             showConfirmAlert(
@@ -324,7 +307,9 @@ final class ScanViewController: BaseViewController {
                 confirmTitle: "放弃",
                 confirmStyle: .destructive
             ) { [weak self] in
-                self?.dismissScan()
+                guard let self else { return }
+                self.scanDelegate?.scanViewControllerDidCancel(self)
+                self.dismissScan()
             }
         }
     }
@@ -340,8 +325,14 @@ final class ScanViewController: BaseViewController {
         viewModel.toggleTorch()
     }
 
+    @objc private func galleryTapped() {
+        PermissionHelper.shared.requestPhotoLibraryPermission(from: self) { [weak self] granted in
+            guard granted, let self else { return }
+            self.presentPhotoPicker()
+        }
+    }
+
     @objc private func thumbnailTapped() {
-        // Preview captured images (simple scroll through)
         let images = viewModel.capturedImages.value
         guard !images.isEmpty else { return }
         let previewVC = CapturedImagesPreviewController(images: images) { [weak self] updatedImages in
@@ -356,9 +347,18 @@ final class ScanViewController: BaseViewController {
         let location = gesture.location(in: previewContainerView)
         let focusPoint = cameraManager.previewLayer.captureDevicePointConverted(fromLayerPoint: location)
         cameraManager.focus(at: focusPoint)
-
-        // Show focus indicator
         showFocusIndicator(at: location)
+    }
+
+    // MARK: - Photo Picker
+
+    private func presentPhotoPicker() {
+        var config = PHPickerConfiguration()
+        config.selectionLimit = 20
+        config.filter = .images
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = self
+        present(picker, animated: true)
     }
 
     // MARK: - Helpers
@@ -369,6 +369,23 @@ final class ScanViewController: BaseViewController {
             nav.setNavigationBarHidden(false, animated: true)
         } else {
             dismiss(animated: true)
+        }
+    }
+
+    private func showCaptureFlash() {
+        let flashView = UIView(frame: previewContainerView.bounds)
+        flashView.backgroundColor = .white
+        flashView.alpha = 0
+        previewContainerView.addSubview(flashView)
+
+        UIView.animate(withDuration: 0.1, animations: {
+            flashView.alpha = 0.6
+        }) { _ in
+            UIView.animate(withDuration: 0.1) {
+                flashView.alpha = 0
+            } completion: { _ in
+                flashView.removeFromSuperview()
+            }
         }
     }
 
@@ -409,7 +426,6 @@ extension ScanViewController: CameraManagerDelegate {
 
     func cameraManager(_ manager: CameraManager, didCapturePhoto image: UIImage) {
         if viewModel.scanType.needsRectangleDetection {
-            // Attempt auto-crop using rectangle detection on the captured image
             rectangleDetector.detectInImage(image) { [weak self] rect in
                 guard let self else { return }
                 if let rect = rect {
@@ -426,6 +442,11 @@ extension ScanViewController: CameraManagerDelegate {
         }
     }
 
+    func cameraManager(_ manager: CameraManager, didFailCapture error: Error?) {
+        viewModel.canCapture.value = true
+        HUD.shared.showError("拍照失败，请重试")
+    }
+
     func cameraManager(_ manager: CameraManager, didEncounterError error: CameraManagerError) {
         showAlert(title: "相机错误", message: error.localizedDescription) { [weak self] in
             self?.dismissScan()
@@ -439,5 +460,43 @@ extension ScanViewController: RectangleDetectorDelegate {
 
     func rectangleDetector(_ detector: RectangleDetector, didDetect rectangle: DetectedRectangle?) {
         viewModel.detectedRectangle.value = rectangle
+    }
+}
+
+// MARK: - PHPickerViewControllerDelegate
+
+extension ScanViewController: PHPickerViewControllerDelegate {
+
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard !results.isEmpty else { return }
+
+        HUD.shared.showLoading(message: "导入中...")
+        let group = DispatchGroup()
+        var importedImages: [UIImage] = []
+        let lock = NSLock()
+
+        for result in results {
+            guard result.itemProvider.canLoadObject(ofClass: UIImage.self) else { continue }
+            group.enter()
+            result.itemProvider.loadObject(ofClass: UIImage.self) { object, _ in
+                if let image = object as? UIImage {
+                    lock.lock()
+                    importedImages.append(image.fixOrientation())
+                    lock.unlock()
+                }
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) { [weak self] in
+            HUD.shared.hideLoading()
+            for image in importedImages {
+                self?.viewModel.addCapturedImage(image)
+            }
+            if !importedImages.isEmpty {
+                HUD.shared.showSuccess("已导入 \(importedImages.count) 张")
+            }
+        }
     }
 }

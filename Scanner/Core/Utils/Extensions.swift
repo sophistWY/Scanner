@@ -56,11 +56,15 @@ extension UIImage {
 extension String {
 
     /// Generate a unique filename with timestamp.
-    static func uniqueFileName(prefix: String = "scan", extension ext: String = "jpg") -> String {
+    /// Pass `nil` for `ext` to get a name without an extension.
+    static func uniqueFileName(prefix: String = "scan", extension ext: String? = "jpg") -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd_HHmmss_SSS"
         let timestamp = formatter.string(from: Date())
-        return "\(prefix)_\(timestamp).\(ext)"
+        if let ext, !ext.isEmpty {
+            return "\(prefix)_\(timestamp).\(ext)"
+        }
+        return "\(prefix)_\(timestamp)"
     }
 }
 

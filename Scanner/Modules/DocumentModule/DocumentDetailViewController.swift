@@ -2,17 +2,23 @@
 //  DocumentDetailViewController.swift
 //  Scanner
 //
-//  Displays the PDF document with share and delete capabilities.
+//  PDF viewer with share, rename and delete actions.
 //
 
 import UIKit
 import PDFKit
 import SnapKit
 
+protocol DocumentDetailDelegate: AnyObject {
+    func documentDetailDidDelete(_ vc: DocumentDetailViewController)
+    func documentDetail(_ vc: DocumentDetailViewController, didRenameTo name: String)
+}
+
 final class DocumentDetailViewController: BaseViewController {
 
     // MARK: - Properties
 
+    weak var detailDelegate: DocumentDetailDelegate?
     private let document: DocumentModel
 
     // MARK: - UI
@@ -26,15 +32,25 @@ final class DocumentDetailViewController: BaseViewController {
         return pv
     }()
 
-    private lazy var infoBar: UIView = {
-        let v = UIView()
-        v.backgroundColor = .secondarySystemBackground
-        return v
+    private lazy var toolbar: UIToolbar = {
+        let tb = UIToolbar()
+        tb.isTranslucent = false
+        tb.barTintColor = .secondarySystemBackground
+
+        let share = UIBarButtonItem(barButtonSystemItem: .action, target: self, action: #selector(shareTapped))
+        let rename = UIBarButtonItem(image: UIImage(systemName: "pencil"), style: .plain, target: self, action: #selector(renameTapped))
+        let delete = UIBarButtonItem(barButtonSystemItem: .trash, target: self, action: #selector(deleteTapped))
+        delete.tintColor = .systemRed
+        let flex = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
+        let info = UIBarButtonItem(customView: infoLabel)
+
+        tb.items = [share, flex, info, flex, rename, delete]
+        return tb
     }()
 
     private lazy var infoLabel: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 13)
+        label.font = .systemFont(ofSize: 12)
         label.textColor = .secondaryLabel
         label.textAlignment = .center
         return label
@@ -58,35 +74,23 @@ final class DocumentDetailViewController: BaseViewController {
         title = document.name
         navigationItem.largeTitleDisplayMode = .never
 
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .action,
-            target: self,
-            action: #selector(shareTapped)
-        )
-
         view.addSubview(pdfView)
-        view.addSubview(infoBar)
-        infoBar.addSubview(infoLabel)
+        view.addSubview(toolbar)
 
         loadPDF()
         updateInfoLabel()
     }
 
     override func setupConstraints() {
-        infoBar.snp.makeConstraints { make in
+        toolbar.snp.makeConstraints { make in
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(view.safeAreaLayoutGuide)
-            make.height.equalTo(36)
-        }
-
-        infoLabel.snp.makeConstraints { make in
-            make.center.equalToSuperview()
         }
 
         pdfView.snp.makeConstraints { make in
             make.top.equalTo(view.safeAreaLayoutGuide)
             make.leading.trailing.equalToSuperview()
-            make.bottom.equalTo(infoBar.snp.top)
+            make.bottom.equalTo(toolbar.snp.top)
         }
     }
 
@@ -109,7 +113,8 @@ final class DocumentDetailViewController: BaseViewController {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         let sizeStr = formatter.string(fromByteCount: Int64(size))
-        infoLabel.text = "\(document.pageCount)页 | \(sizeStr) | \(document.formattedCreateTime)"
+        infoLabel.text = "\(document.pageCount)页 | \(sizeStr)"
+        infoLabel.sizeToFit()
     }
 
     // MARK: - Actions
@@ -122,8 +127,39 @@ final class DocumentDetailViewController: BaseViewController {
         }
         let activityVC = UIActivityViewController(activityItems: [pdfURL], applicationActivities: nil)
         if let popover = activityVC.popoverPresentationController {
-            popover.barButtonItem = navigationItem.rightBarButtonItem
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY - 60, width: 0, height: 0)
         }
         present(activityVC, animated: true)
+    }
+
+    @objc private func renameTapped() {
+        showTextFieldAlert(
+            title: "重命名",
+            message: nil,
+            placeholder: "新文档名称",
+            defaultText: document.name
+        ) { [weak self] newName in
+            guard let self else { return }
+            WCDBManager.shared.updateDocumentName(newName, forId: self.document.id)
+            self.title = newName
+            self.detailDelegate?.documentDetail(self, didRenameTo: newName)
+        }
+    }
+
+    @objc private func deleteTapped() {
+        showConfirmAlert(
+            title: "删除文档？",
+            message: "此操作不可撤销",
+            confirmTitle: "删除",
+            confirmStyle: .destructive
+        ) { [weak self] in
+            guard let self else { return }
+            FileHelper.shared.deleteFile(at: self.document.pdfURL)
+            FileHelper.shared.deleteFile(at: self.document.thumbnailURL)
+            WCDBManager.shared.deleteDocument(byId: self.document.id)
+            self.detailDelegate?.documentDetailDidDelete(self)
+            self.navigationController?.popViewController(animated: true)
+        }
     }
 }

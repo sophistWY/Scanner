@@ -2,8 +2,8 @@
 //  CapturedImagesPreviewController.swift
 //  Scanner
 //
-//  Simple horizontally scrollable preview of captured images.
-//  Allows deletion of individual images.
+//  Horizontally scrollable preview of captured images.
+//  Supports deletion and per-image filter application.
 //
 
 import UIKit
@@ -38,14 +38,37 @@ final class CapturedImagesPreviewController: BaseViewController {
         return label
     }()
 
+    private lazy var filterBar: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.distribution = .fillEqually
+        stack.spacing = 8
+        for filterType in ImageFilterType.allCases {
+            let btn = UIButton(type: .system)
+            btn.setTitle(filterType.rawValue, for: .normal)
+            btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+            btn.tintColor = .white
+            btn.backgroundColor = UIColor.white.withAlphaComponent(0.15)
+            btn.layer.cornerRadius = 6
+            btn.tag = ImageFilterType.allCases.firstIndex(of: filterType) ?? 0
+            btn.addTarget(self, action: #selector(filterTapped(_:)), for: .touchUpInside)
+            stack.addArrangedSubview(btn)
+        }
+        return stack
+    }()
+
     private var currentPage: Int = 0 {
         didSet { pageLabel.text = "\(currentPage + 1) / \(images.count)" }
     }
+
+    // Keep original images for re-applying different filters
+    private var originalImages: [UIImage] = []
 
     // MARK: - Init
 
     init(images: [UIImage], onDismiss: @escaping ([UIImage]) -> Void) {
         self.images = images
+        self.originalImages = images
         self.onDismiss = onDismiss
         super.init(nibName: nil, bundle: nil)
     }
@@ -71,22 +94,36 @@ final class CapturedImagesPreviewController: BaseViewController {
 
         view.addSubview(collectionView)
         view.addSubview(pageLabel)
+        view.addSubview(filterBar)
 
         currentPage = 0
     }
 
     override func setupConstraints() {
+        filterBar.snp.makeConstraints { make in
+            make.leading.equalToSuperview().offset(16)
+            make.trailing.equalToSuperview().offset(-16)
+            make.bottom.equalTo(view.safeAreaLayoutGuide).offset(-8)
+            make.height.equalTo(36)
+        }
+
+        pageLabel.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.bottom.equalTo(filterBar.snp.top).offset(-12)
+            make.height.equalTo(24)
+        }
+
         collectionView.snp.makeConstraints { make in
             make.top.equalTo(view.safeAreaLayoutGuide)
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(pageLabel.snp.top).offset(-8)
         }
+    }
 
-        pageLabel.snp.makeConstraints { make in
-            make.centerX.equalToSuperview()
-            make.bottom.equalTo(view.safeAreaLayoutGuide).offset(-16)
-            make.height.equalTo(24)
-        }
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Invalidate layout when bounds change to fix zero-size on first layout
+        collectionView.collectionViewLayout.invalidateLayout()
     }
 
     // MARK: - Actions
@@ -106,6 +143,7 @@ final class CapturedImagesPreviewController: BaseViewController {
         ) { [weak self] in
             guard let self else { return }
             self.images.remove(at: self.currentPage)
+            self.originalImages.remove(at: self.currentPage)
             if self.images.isEmpty {
                 self.onDismiss(self.images)
                 self.dismiss(animated: true)
@@ -113,6 +151,24 @@ final class CapturedImagesPreviewController: BaseViewController {
             }
             self.currentPage = min(self.currentPage, self.images.count - 1)
             self.collectionView.reloadData()
+        }
+    }
+
+    @objc private func filterTapped(_ sender: UIButton) {
+        guard currentPage < originalImages.count else { return }
+        let filterTypes = ImageFilterType.allCases
+        guard sender.tag < filterTypes.count else { return }
+        let filterType = filterTypes[sender.tag]
+
+        HUD.shared.showLoading()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let filtered = ImageFilterManager.shared.apply(filterType, to: self.originalImages[self.currentPage])
+            DispatchQueue.main.async {
+                HUD.shared.hideLoading()
+                self.images[self.currentPage] = filtered
+                self.collectionView.reloadItems(at: [IndexPath(item: self.currentPage, section: 0)])
+            }
         }
     }
 }
@@ -132,18 +188,33 @@ extension CapturedImagesPreviewController: UICollectionViewDataSource, UICollect
     }
 
     func collectionView(_ cv: UICollectionView, layout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        return cv.bounds.size
+        let size = cv.bounds.size
+        guard size.width > 0, size.height > 0 else {
+            return CGSize(width: UIScreen.main.bounds.width, height: 400)
+        }
+        return size
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        let page = Int(scrollView.contentOffset.x / scrollView.bounds.width)
-        currentPage = page
+        updateCurrentPage(scrollView)
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate {
+            updateCurrentPage(scrollView)
+        }
+    }
+
+    private func updateCurrentPage(_ scrollView: UIScrollView) {
+        guard scrollView.bounds.width > 0 else { return }
+        let page = Int(round(scrollView.contentOffset.x / scrollView.bounds.width))
+        currentPage = max(0, min(page, images.count - 1))
     }
 }
 
 // MARK: - ImagePageCell
 
-private final class ImagePageCell: UICollectionViewCell {
+final class ImagePageCell: UICollectionViewCell {
 
     private let imageView: UIImageView = {
         let iv = UIImageView()
@@ -165,5 +236,10 @@ private final class ImagePageCell: UICollectionViewCell {
 
     func configure(with image: UIImage) {
         imageView.image = image
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        imageView.image = nil
     }
 }

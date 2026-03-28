@@ -70,7 +70,7 @@ final class DocumentListViewModel: BaseViewModel {
     /// 3. Insert DB record
     func createDocument(name: String, images: [UIImage], completion: @escaping (Bool) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
-            let timestamp = String.uniqueFileName(prefix: "doc", extension: "")
+            let timestamp = String.uniqueFileName(prefix: "doc", extension: nil)
             let pdfRelativePath = "\(AppConstants.Directory.pdfs)/\(timestamp).pdf"
             let thumbRelativePath = "\(AppConstants.Directory.scans)/\(timestamp)_thumb.jpg"
 
@@ -101,6 +101,14 @@ final class DocumentListViewModel: BaseViewModel {
             doc.thumbnailPath = thumbRelativePath
 
             let success = WCDBManager.shared.insertDocument(doc)
+
+            if !success {
+                // Rollback: clean up orphan files if DB insert failed
+                FileHelper.shared.deleteFile(at: pdfURL)
+                let thumbURL = FileHelper.shared.documentsDirectory.appendingPathComponent(thumbRelativePath)
+                FileHelper.shared.deleteFile(at: thumbURL)
+                Logger.shared.log("Rolled back orphan files after failed DB insert", level: .warning)
+            }
 
             DispatchQueue.main.async { [weak self] in
                 if success {

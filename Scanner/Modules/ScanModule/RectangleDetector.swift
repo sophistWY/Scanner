@@ -16,10 +16,16 @@
 //  - When no rectangle is detected for several consecutive frames, we clear the result
 //    to avoid "ghost" rectangles.
 //
+//  Thread model:
+//  - All mutable state is accessed ONLY on `detectionQueue`.
+//  - Public methods that touch state dispatch onto `detectionQueue`.
+//  - Delegate callbacks are dispatched to main thread.
+//
 
 import UIKit
 import Vision
 import CoreImage
+import CoreMedia
 
 // MARK: - Detected Rectangle
 
@@ -39,16 +45,6 @@ struct DetectedRectangle: Equatable {
             bottomRight: CGPoint(x: bottomRight.x * size.width, y: bottomRight.y * size.height)
         )
     }
-
-    /// Convert to CIVector array for use with CIPerspectiveCorrection.
-    var perspectiveVectors: (tl: CIVector, tr: CIVector, bl: CIVector, br: CIVector) {
-        return (
-            CIVector(cgPoint: topLeft),
-            CIVector(cgPoint: topRight),
-            CIVector(cgPoint: bottomLeft),
-            CIVector(cgPoint: bottomRight)
-        )
-    }
 }
 
 // MARK: - Delegate
@@ -64,27 +60,28 @@ final class RectangleDetector {
 
     weak var delegate: RectangleDetectorDelegate?
 
-    /// Whether detection is active. Set to false to pause processing.
-    var isEnabled: Bool = true
+    /// Whether detection is active. Atomic-safe via detectionQueue.
+    var isEnabled: Bool {
+        get { detectionQueue.sync { _isEnabled } }
+        set { detectionQueue.async { [weak self] in self?._isEnabled = newValue } }
+    }
 
-    // MARK: - Private
+    // MARK: - Private (all accessed ONLY on detectionQueue)
 
     private let detectionQueue = DispatchQueue(label: "com.scanner.rectangleDetection", qos: .userInteractive)
+
+    private var _isEnabled: Bool = true
     private var isProcessing = false
 
-    // Smoothing: exponential moving average
     private let smoothingFactor: CGFloat = 0.6
     private var smoothedRect: DetectedRectangle?
 
-    // If no rectangle detected for this many consecutive frames, clear overlay
     private let missingFrameThreshold = 8
     private var consecutiveMissingFrames = 0
 
-    // Throttle: process at most one frame every N milliseconds
     private var lastProcessTime: CFAbsoluteTime = 0
-    private let minProcessInterval: CFTimeInterval = 0.05 // ~20 fps max
+    private let minProcessInterval: CFTimeInterval = 0.05
 
-    // Reusable request
     private lazy var rectangleRequest: VNDetectRectanglesRequest = {
         let request = VNDetectRectanglesRequest { [weak self] request, error in
             self?.handleDetectionResult(request: request, error: error)
@@ -93,7 +90,6 @@ final class RectangleDetector {
         request.minimumConfidence = AppConstants.Camera.minimumConfidence
         request.minimumAspectRatio = AppConstants.Camera.minimumAspectRatio
         request.maximumAspectRatio = AppConstants.Camera.maximumAspectRatio
-        // Require all four corners to be inside the image
         request.quadratureTolerance = 30
         return request
     }()
@@ -101,26 +97,20 @@ final class RectangleDetector {
     // MARK: - Public API
 
     /// Process a video sample buffer for rectangle detection.
-    /// Call this from CameraManagerDelegate.didOutputVideoFrame.
+    /// Safe to call from any thread (typically main via CameraManagerDelegate).
     func detect(in sampleBuffer: CMSampleBuffer) {
-        guard isEnabled else { return }
-
-        // Throttle
-        let now = CFAbsoluteTimeGetCurrent()
-        guard now - lastProcessTime >= minProcessInterval else { return }
-
-        // Don't queue work if previous frame is still being processed
-        guard !isProcessing else { return }
-        isProcessing = true
-        lastProcessTime = now
-
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            isProcessing = false
-            return
-        }
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         detectionQueue.async { [weak self] in
-            guard let self else { return }
+            guard let self, self._isEnabled else { return }
+
+            let now = CFAbsoluteTimeGetCurrent()
+            guard now - self.lastProcessTime >= self.minProcessInterval else { return }
+            guard !self.isProcessing else { return }
+
+            self.isProcessing = true
+            self.lastProcessTime = now
+
             let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
             do {
                 try handler.perform([self.rectangleRequest])
@@ -131,7 +121,7 @@ final class RectangleDetector {
         }
     }
 
-    /// Detect rectangle in a UIImage (used for post-capture cropping).
+    /// Detect rectangle in a static UIImage (for post-capture cropping).
     func detectInImage(_ image: UIImage, completion: @escaping (DetectedRectangle?) -> Void) {
         guard let ciImage = CIImage(image: image) else {
             completion(nil)
@@ -139,11 +129,14 @@ final class RectangleDetector {
         }
 
         detectionQueue.async { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
             let handler = VNImageRequestHandler(ciImage: ciImage, options: [:])
             let request = VNDetectRectanglesRequest()
             request.maximumObservations = 1
-            request.minimumConfidence = 0.6 // lower threshold for static images
+            request.minimumConfidence = 0.6
             request.minimumAspectRatio = AppConstants.Camera.minimumAspectRatio
 
             do {
@@ -154,7 +147,6 @@ final class RectangleDetector {
                 }
 
                 let rect = self.convertToUIKit(observation: observation)
-                // Scale to pixel coordinates
                 let imageSize = CGSize(width: ciImage.extent.width, height: ciImage.extent.height)
                 let pixelRect = rect.scaled(to: imageSize)
 
@@ -166,14 +158,16 @@ final class RectangleDetector {
         }
     }
 
-    /// Reset smoothing state (e.g. when re-entering the scan screen).
+    /// Reset smoothing state. Thread-safe: dispatches onto detectionQueue.
     func reset() {
-        smoothedRect = nil
-        consecutiveMissingFrames = 0
-        isProcessing = false
+        detectionQueue.async { [weak self] in
+            self?.smoothedRect = nil
+            self?.consecutiveMissingFrames = 0
+            self?.isProcessing = false
+        }
     }
 
-    // MARK: - Detection Result Handler
+    // MARK: - Detection Result Handler (runs on detectionQueue)
 
     private func handleDetectionResult(request: VNRequest, error: Error?) {
         if let error = error {
@@ -206,12 +200,10 @@ final class RectangleDetector {
                 self.delegate?.rectangleDetector(self, didDetect: nil)
             }
         }
-        // If under threshold, keep the last smoothed rect (prevents flicker)
     }
 
     // MARK: - Coordinate Conversion
 
-    /// Vision origin is bottom-left; UIKit origin is top-left. Flip Y.
     private func convertToUIKit(observation: VNRectangleObservation) -> DetectedRectangle {
         return DetectedRectangle(
             topLeft: CGPoint(x: observation.topLeft.x, y: 1.0 - observation.topLeft.y),
@@ -223,7 +215,6 @@ final class RectangleDetector {
 
     // MARK: - Smoothing
 
-    /// Exponential moving average to reduce jitter on corners.
     private func applySmoothing(_ newRect: DetectedRectangle) -> DetectedRectangle {
         guard let prev = smoothedRect else {
             smoothedRect = newRect
@@ -231,7 +222,6 @@ final class RectangleDetector {
         }
 
         let factor = smoothingFactor
-
         let smoothed = DetectedRectangle(
             topLeft: lerp(from: prev.topLeft, to: newRect.topLeft, factor: factor),
             topRight: lerp(from: prev.topRight, to: newRect.topRight, factor: factor),
@@ -243,7 +233,6 @@ final class RectangleDetector {
         return smoothed
     }
 
-    /// Linear interpolation between two points.
     private func lerp(from a: CGPoint, to b: CGPoint, factor: CGFloat) -> CGPoint {
         return CGPoint(
             x: a.x + (b.x - a.x) * factor,

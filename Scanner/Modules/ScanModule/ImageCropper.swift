@@ -35,7 +35,10 @@ final class ImageCropper {
             return CGPoint(x: point.x, y: imageHeight - point.y)
         }
 
-        let filter = CIFilter(name: "CIPerspectiveCorrection")!
+        guard let filter = CIFilter(name: "CIPerspectiveCorrection") else {
+            Logger.shared.log("CIPerspectiveCorrection filter unavailable", level: .error)
+            return nil
+        }
         filter.setValue(ciImage, forKey: kCIInputImageKey)
         filter.setValue(CIVector(cgPoint: flipY(rectangle.topLeft)), forKey: "inputTopLeft")
         filter.setValue(CIVector(cgPoint: flipY(rectangle.topRight)), forKey: "inputTopRight")

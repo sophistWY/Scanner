@@ -2,8 +2,7 @@
 //  Router.swift
 //  Scanner
 //
-//  Lightweight app-level router. Holds the root navigation stack
-//  and provides convenience push / present / pop methods.
+//  App-level router. Single source of truth for navigation.
 //
 
 import UIKit
@@ -16,7 +15,7 @@ final class Router {
 
     private init() {}
 
-    // MARK: - Setup
+    // MARK: - Window Setup
 
     func setupWindow(_ window: UIWindow) {
         self.window = window
@@ -28,7 +27,7 @@ final class Router {
         Logger.shared.log("Window setup complete", level: .info)
     }
 
-    // MARK: - Navigation
+    // MARK: - Push / Pop
 
     func push(_ viewController: UIViewController, animated: Bool = true) {
         navigationController?.pushViewController(viewController, animated: animated)
@@ -43,13 +42,51 @@ final class Router {
         navigationController?.popToRootViewController(animated: animated)
     }
 
+    func popTo<T: UIViewController>(_ type: T.Type, animated: Bool = true) -> Bool {
+        guard let target = navigationController?.viewControllers.last(where: { $0 is T }) else {
+            return false
+        }
+        navigationController?.popToViewController(target, animated: animated)
+        return true
+    }
+
+    // MARK: - Modal Presentation
+
     func present(_ viewController: UIViewController, animated: Bool = true, completion: (() -> Void)? = nil) {
-        let topVC = navigationController?.topViewController ?? navigationController
-        topVC?.present(viewController, animated: animated, completion: completion)
+        topViewController?.present(viewController, animated: animated, completion: completion)
+    }
+
+    func presentInNav(_ viewController: UIViewController, animated: Bool = true, completion: (() -> Void)? = nil) {
+        let nav = BaseNavigationController(rootViewController: viewController)
+        nav.modalPresentationStyle = viewController.modalPresentationStyle
+        topViewController?.present(nav, animated: animated, completion: completion)
     }
 
     func dismiss(animated: Bool = true, completion: (() -> Void)? = nil) {
-        let topVC = navigationController?.topViewController ?? navigationController
-        topVC?.dismiss(animated: animated, completion: completion)
+        topViewController?.dismiss(animated: animated, completion: completion)
+    }
+
+    // MARK: - Quick Navigation
+
+    func openScan(type: ScanType, delegate: ScanViewControllerDelegate) {
+        let scanVC = ScanViewController(scanType: type)
+        scanVC.scanDelegate = delegate
+        push(scanVC)
+    }
+
+    func openDocumentDetail(_ document: DocumentModel) {
+        let detailVC = DocumentDetailViewController(document: document)
+        push(detailVC)
+    }
+
+    func openWeb(url: String, title: String? = nil) {
+        let webVC = BaseWebViewController(urlString: url, title: title)
+        presentInNav(webVC)
+    }
+
+    // MARK: - Utility
+
+    var topViewController: UIViewController? {
+        return window?.rootViewController?.topMostViewController
     }
 }
