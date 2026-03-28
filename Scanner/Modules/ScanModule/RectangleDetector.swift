@@ -2,24 +2,18 @@
 //  RectangleDetector.swift
 //  Scanner
 //
-//  Uses Vision VNDetectRectanglesRequest to detect document edges in real-time.
+//  Real-time document edge detection via VNDetectRectanglesRequest.
 //
-//  Coordinate system notes:
-//  - Vision returns normalized coordinates with origin at BOTTOM-LEFT (like Core Image).
-//  - UIKit/CALayer has origin at TOP-LEFT.
-//  - Conversion: uiKitY = 1.0 - visionY
-//  - We flip Y for all four corners before returning to the caller.
-//
-//  Smoothing strategy:
-//  - Raw detections jitter frame-to-frame. We apply exponential moving average (EMA)
-//    on corner positions to produce stable overlays.
-//  - When no rectangle is detected for several consecutive frames, we clear the result
-//    to avoid "ghost" rectangles.
+//  Stability strategy (mimics CamScanner-level):
+//  1. Low confidence threshold (0.5) to capture more candidates.
+//  2. Heavy EMA smoothing (factor 0.25) – favours the previous position
+//     so the overlay barely jitters.
+//  3. Very long hold time (30+ frames) before clearing a lost rectangle.
+//  4. Frame throttle kept at 60ms to balance CPU vs responsiveness.
 //
 //  Thread model:
-//  - All mutable state is accessed ONLY on `detectionQueue`.
-//  - Public methods that touch state dispatch onto `detectionQueue`.
-//  - Delegate callbacks are dispatched to main thread.
+//  All mutable state is accessed ONLY on `detectionQueue`.
+//  Delegate callbacks dispatch to main thread.
 //
 
 import UIKit
@@ -29,14 +23,12 @@ import CoreMedia
 
 // MARK: - Detected Rectangle
 
-/// Four corners in UIKit normalized coordinates (origin top-left, values 0...1).
 struct DetectedRectangle: Equatable {
     let topLeft: CGPoint
     let topRight: CGPoint
     let bottomLeft: CGPoint
     let bottomRight: CGPoint
 
-    /// Scale all corners to a container size for overlay drawing.
     func scaled(to size: CGSize) -> DetectedRectangle {
         return DetectedRectangle(
             topLeft: CGPoint(x: topLeft.x * size.width, y: topLeft.y * size.height),
@@ -45,12 +37,22 @@ struct DetectedRectangle: Equatable {
             bottomRight: CGPoint(x: bottomRight.x * size.width, y: bottomRight.y * size.height)
         )
     }
+
+    /// Area in normalized coordinates (0...1). Used to filter tiny noise rects.
+    var normalizedArea: CGFloat {
+        let a = cross(topLeft, topRight, bottomRight)
+        let b = cross(topLeft, bottomRight, bottomLeft)
+        return abs(a + b) / 2.0
+    }
+
+    private func cross(_ p1: CGPoint, _ p2: CGPoint, _ p3: CGPoint) -> CGFloat {
+        return (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x)
+    }
 }
 
 // MARK: - Delegate
 
 protocol RectangleDetectorDelegate: AnyObject {
-    /// Called on main thread when a rectangle is detected (or lost).
     func rectangleDetector(_ detector: RectangleDetector, didDetect rectangle: DetectedRectangle?)
 }
 
@@ -60,44 +62,49 @@ final class RectangleDetector {
 
     weak var delegate: RectangleDetectorDelegate?
 
-    /// Whether detection is active. Atomic-safe via detectionQueue.
     var isEnabled: Bool {
         get { detectionQueue.sync { _isEnabled } }
         set { detectionQueue.async { [weak self] in self?._isEnabled = newValue } }
     }
 
-    // MARK: - Private (all accessed ONLY on detectionQueue)
+    /// Snapshot of the last smoothed rect (main-thread safe).
+    private(set) var lastStableRectangle: DetectedRectangle?
+
+    // MARK: - Private
 
     private let detectionQueue = DispatchQueue(label: "com.scanner.rectangleDetection", qos: .userInteractive)
 
     private var _isEnabled: Bool = true
     private var isProcessing = false
 
-    private let smoothingFactor: CGFloat = 0.6
+    // Heavy smoothing: lower = smoother. 0.25 means 75% old + 25% new.
+    private let smoothingFactor: CGFloat = 0.25
     private var smoothedRect: DetectedRectangle?
 
-    private let missingFrameThreshold = 8
+    // How many consecutive missing frames before we clear. 30 frames ≈ 2s at 15fps.
+    private let missingFrameThreshold = 30
     private var consecutiveMissingFrames = 0
 
     private var lastProcessTime: CFAbsoluteTime = 0
-    private let minProcessInterval: CFTimeInterval = 0.05
+    private let minProcessInterval: CFTimeInterval = 0.06
+
+    // Minimum area (normalised 0...1) to accept a rectangle; reject tiny noise.
+    private let minimumNormalizedArea: CGFloat = 0.05
 
     private lazy var rectangleRequest: VNDetectRectanglesRequest = {
         let request = VNDetectRectanglesRequest { [weak self] request, error in
             self?.handleDetectionResult(request: request, error: error)
         }
-        request.maximumObservations = 1
-        request.minimumConfidence = AppConstants.Camera.minimumConfidence
-        request.minimumAspectRatio = AppConstants.Camera.minimumAspectRatio
-        request.maximumAspectRatio = AppConstants.Camera.maximumAspectRatio
-        request.quadratureTolerance = 30
+        request.maximumObservations = 3
+        request.minimumConfidence = 0.5
+        request.minimumAspectRatio = 0.2
+        request.maximumAspectRatio = 1.0
+        request.quadratureTolerance = 45
         return request
     }()
 
     // MARK: - Public API
 
-    /// Process a video sample buffer for rectangle detection.
-    /// Safe to call from any thread (typically main via CameraManagerDelegate).
     func detect(in sampleBuffer: CMSampleBuffer) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
@@ -121,7 +128,6 @@ final class RectangleDetector {
         }
     }
 
-    /// Detect rectangle in a static UIImage (for post-capture cropping).
     func detectInImage(_ image: UIImage, completion: @escaping (DetectedRectangle?) -> Void) {
         guard let ciImage = CIImage(image: image) else {
             completion(nil)
@@ -136,8 +142,9 @@ final class RectangleDetector {
             let handler = VNImageRequestHandler(ciImage: ciImage, options: [:])
             let request = VNDetectRectanglesRequest()
             request.maximumObservations = 1
-            request.minimumConfidence = 0.6
-            request.minimumAspectRatio = AppConstants.Camera.minimumAspectRatio
+            request.minimumConfidence = 0.4
+            request.minimumAspectRatio = 0.2
+            request.quadratureTolerance = 45
 
             do {
                 try handler.perform([request])
@@ -158,7 +165,6 @@ final class RectangleDetector {
         }
     }
 
-    /// Reset smoothing state. Thread-safe: dispatches onto detectionQueue.
     func reset() {
         detectionQueue.async { [weak self] in
             self?.smoothedRect = nil
@@ -175,15 +181,23 @@ final class RectangleDetector {
             return
         }
 
-        guard let observation = (request.results as? [VNRectangleObservation])?.first else {
+        guard let observations = request.results as? [VNRectangleObservation] else {
+            handleMissing()
+            return
+        }
+
+        // Pick the best (largest area) rectangle that exceeds our minimum area.
+        let candidates = observations.map { convertToUIKit(observation: $0) }
+        guard let best = candidates.max(by: { $0.normalizedArea < $1.normalizedArea }),
+              best.normalizedArea >= minimumNormalizedArea else {
             handleMissing()
             return
         }
 
         consecutiveMissingFrames = 0
 
-        let rawRect = convertToUIKit(observation: observation)
-        let smoothed = applySmoothing(rawRect)
+        let smoothed = applySmoothing(best)
+        lastStableRectangle = smoothed
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -193,13 +207,17 @@ final class RectangleDetector {
 
     private func handleMissing() {
         consecutiveMissingFrames += 1
+
+        // Still keep showing the smoothed rect for a while before clearing.
         if consecutiveMissingFrames >= missingFrameThreshold {
             smoothedRect = nil
+            lastStableRectangle = nil
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.delegate?.rectangleDetector(self, didDetect: nil)
             }
         }
+        // Otherwise: do nothing — overlay keeps showing the last good position.
     }
 
     // MARK: - Coordinate Conversion
@@ -221,12 +239,12 @@ final class RectangleDetector {
             return newRect
         }
 
-        let factor = smoothingFactor
+        let f = smoothingFactor
         let smoothed = DetectedRectangle(
-            topLeft: lerp(from: prev.topLeft, to: newRect.topLeft, factor: factor),
-            topRight: lerp(from: prev.topRight, to: newRect.topRight, factor: factor),
-            bottomLeft: lerp(from: prev.bottomLeft, to: newRect.bottomLeft, factor: factor),
-            bottomRight: lerp(from: prev.bottomRight, to: newRect.bottomRight, factor: factor)
+            topLeft: lerp(from: prev.topLeft, to: newRect.topLeft, factor: f),
+            topRight: lerp(from: prev.topRight, to: newRect.topRight, factor: f),
+            bottomLeft: lerp(from: prev.bottomLeft, to: newRect.bottomLeft, factor: f),
+            bottomRight: lerp(from: prev.bottomRight, to: newRect.bottomRight, factor: f)
         )
 
         smoothedRect = smoothed

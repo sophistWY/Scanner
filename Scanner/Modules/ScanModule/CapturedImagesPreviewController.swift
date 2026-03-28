@@ -38,10 +38,15 @@ final class CapturedImagesPreviewController: BaseViewController {
         return label
     }()
 
+    private lazy var filterScrollView: UIScrollView = {
+        let sv = UIScrollView()
+        sv.showsHorizontalScrollIndicator = false
+        return sv
+    }()
+
     private lazy var filterBar: UIStackView = {
         let stack = UIStackView()
         stack.axis = .horizontal
-        stack.distribution = .fillEqually
         stack.spacing = 8
         for filterType in ImageFilterType.allCases {
             let btn = UIButton(type: .system)
@@ -94,22 +99,27 @@ final class CapturedImagesPreviewController: BaseViewController {
 
         view.addSubview(collectionView)
         view.addSubview(pageLabel)
-        view.addSubview(filterBar)
+        view.addSubview(filterScrollView)
+        filterScrollView.addSubview(filterBar)
 
         currentPage = 0
     }
 
     override func setupConstraints() {
-        filterBar.snp.makeConstraints { make in
-            make.leading.equalToSuperview().offset(16)
-            make.trailing.equalToSuperview().offset(-16)
+        filterScrollView.snp.makeConstraints { make in
+            make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(view.safeAreaLayoutGuide).offset(-8)
             make.height.equalTo(36)
         }
 
+        filterBar.snp.makeConstraints { make in
+            make.edges.equalToSuperview().inset(UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
+            make.height.equalToSuperview()
+        }
+
         pageLabel.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
-            make.bottom.equalTo(filterBar.snp.top).offset(-12)
+            make.bottom.equalTo(filterScrollView.snp.top).offset(-12)
             make.height.equalTo(24)
         }
 

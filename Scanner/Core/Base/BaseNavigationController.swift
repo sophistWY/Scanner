@@ -2,13 +2,28 @@
 //  BaseNavigationController.swift
 //  Scanner
 //
+//  Each VC can declare `prefersNavigationBarHidden` to control
+//  nav bar visibility. The nav controller reads this on every
+//  push/pop transition so individual screens don't need to manually
+//  call setNavigationBarHidden.
+//
 
 import UIKit
+
+/// Override this in any BaseViewController subclass to hide the nav bar.
+protocol NavigationBarConfigurable {
+    var prefersNavigationBarHidden: Bool { get }
+}
+
+extension NavigationBarConfigurable {
+    var prefersNavigationBarHidden: Bool { false }
+}
 
 final class BaseNavigationController: UINavigationController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        delegate = self
         interactivePopGestureRecognizer?.delegate = self
     }
 
@@ -18,6 +33,20 @@ final class BaseNavigationController: UINavigationController {
 
     override var childForStatusBarHidden: UIViewController? {
         return topViewController
+    }
+}
+
+// MARK: - UINavigationControllerDelegate
+
+extension BaseNavigationController: UINavigationControllerDelegate {
+
+    func navigationController(
+        _ navigationController: UINavigationController,
+        willShow viewController: UIViewController,
+        animated: Bool
+    ) {
+        let shouldHide = (viewController as? NavigationBarConfigurable)?.prefersNavigationBarHidden ?? false
+        setNavigationBarHidden(shouldHide, animated: animated)
     }
 }
 

@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		95FC84F58271F618131573F0 /* Pods_Scanner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B9BA80DC071EA14B70B9E0E1 /* Pods_Scanner.framework */; };
+		AABB000100010001 /* opencv2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = AABB000100010002 /* opencv2.xcframework */; };
+		AABB000100010003 /* opencv2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AABB000100010002 /* opencv2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -15,6 +17,7 @@
 		2EB9423B3A29B6DE90EE7D4D /* Pods-Scanner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Scanner.debug.xcconfig"; path = "Target Support Files/Pods-Scanner/Pods-Scanner.debug.xcconfig"; sourceTree = "<group>"; };
 		4B7AE68F93121BEF9A23B592 /* Pods-Scanner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Scanner.release.xcconfig"; path = "Target Support Files/Pods-Scanner/Pods-Scanner.release.xcconfig"; sourceTree = "<group>"; };
 		B9BA80DC071EA14B70B9E0E1 /* Pods_Scanner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Scanner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		AABB000100010002 /* opencv2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = opencv2.xcframework; path = Frameworks/opencv2.xcframework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -43,6 +46,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AABB000100010001 /* opencv2.xcframework in Frameworks */,
 				95FC84F58271F618131573F0 /* Pods_Scanner.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -71,6 +75,7 @@
 		6B5A46789F58D403F769CE29 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				AABB000100010002 /* opencv2.xcframework */,
 				B9BA80DC071EA14B70B9E0E1 /* Pods_Scanner.framework */,
 			);
 			name = Frameworks;
@@ -96,6 +101,7 @@
 				0CCA43802F77B7090096B52D /* Sources */,
 				0CCA43812F77B7090096B52D /* Frameworks */,
 				0CCA43822F77B7090096B52D /* Resources */,
+				AABB000100010004 /* Embed Frameworks */,
 				F3539087C16BD73E0202FEE4 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
@@ -154,6 +160,20 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		AABB000100010004 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				AABB000100010003 /* opencv2.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXShellScriptBuildPhase section */
 		05B0B062B89608536645208D /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -185,13 +205,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Scanner/Pods-Scanner-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Scanner/Pods-Scanner-frameworks-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -220,6 +236,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = U244LH72D8;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Frameworks",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Scanner/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "需要使用相机来扫描文档、银行卡和营业执照";
@@ -236,6 +256,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.xiangying.scanner;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Scanner/Scanner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -250,6 +271,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = U244LH72D8;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Frameworks",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Scanner/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "需要使用相机来扫描文档、银行卡和营业执照";
@@ -266,6 +291,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.xiangying.scanner;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Scanner/Scanner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

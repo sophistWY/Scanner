@@ -9,6 +9,7 @@ import SnapKit
 final class DocumentListViewController: BaseViewController {
 
     private let viewModel = DocumentListViewModel()
+    private var pendingScanImages: [UIImage]?
 
     // MARK: - UI
 
@@ -58,8 +59,12 @@ final class DocumentListViewController: BaseViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        navigationController?.setNavigationBarHidden(false, animated: animated)
         viewModel.loadDocuments()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        handlePendingScanImages()
     }
 
     // MARK: - Setup
@@ -207,25 +212,48 @@ extension DocumentListViewController: UITableViewDataSource, UITableViewDelegate
 extension DocumentListViewController: ScanViewControllerDelegate {
 
     func scanViewController(_ vc: ScanViewController, didFinishWith images: [UIImage]) {
+        pendingScanImages = images
+    }
+
+    /// Called after ScanVC pop animation finishes — safe to present alert here.
+    private func handlePendingScanImages() {
+        guard let images = pendingScanImages else { return }
+        pendingScanImages = nil
+
         showTextFieldAlert(
             title: "保存文档",
             message: "请输入文档名称",
             placeholder: "文档名称",
             defaultText: "扫描文档_\(Date().formatted(style: .short))"
         ) { [weak self] name in
-            HUD.shared.showLoading(message: "正在生成PDF...")
-            self?.viewModel.createDocument(name: name, images: images) { success in
-                HUD.shared.hideLoading()
-                if success {
-                    HUD.shared.showSuccess("保存成功")
-                } else {
-                    HUD.shared.showError("保存失败")
-                }
-            }
+            guard let self else { return }
+            let editVC = EditViewController(images: images, documentName: name)
+            editVC.editDelegate = self
+            self.navigationController?.pushViewController(editVC, animated: true)
         }
     }
 
     func scanViewControllerDidCancel(_ vc: ScanViewController) {}
+}
+
+// MARK: - EditViewControllerDelegate
+
+extension DocumentListViewController: EditViewControllerDelegate {
+
+    func editViewController(_ vc: EditViewController, didFinishWith images: [UIImage]) {
+        let name = vc.title ?? "扫描文档"
+        HUD.shared.showLoading(message: "正在生成PDF...")
+        viewModel.createDocument(name: name, images: images) { success in
+            HUD.shared.hideLoading()
+            if success {
+                HUD.shared.showSuccess("保存成功")
+            } else {
+                HUD.shared.showError("保存失败")
+            }
+        }
+    }
+
+    func editViewControllerDidCancel(_ vc: EditViewController) {}
 }
 
 // MARK: - DocumentDetailDelegate

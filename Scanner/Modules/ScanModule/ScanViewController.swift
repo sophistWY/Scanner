@@ -135,12 +135,9 @@ final class ScanViewController: BaseViewController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    // MARK: - Lifecycle
+    override var prefersNavigationBarHidden: Bool { true }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        navigationController?.setNavigationBarHidden(true, animated: false)
-    }
+    // MARK: - Lifecycle
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -364,9 +361,8 @@ final class ScanViewController: BaseViewController {
     // MARK: - Helpers
 
     private func dismissScan() {
-        if let nav = navigationController {
-            nav.popViewController(animated: true)
-            nav.setNavigationBarHidden(false, animated: true)
+        if navigationController != nil {
+            navigationController?.popViewController(animated: true)
         } else {
             dismiss(animated: true)
         }

@@ -2,94 +2,60 @@
 //  ImageFilterManager.swift
 //  Scanner
 //
-//  Provides document image enhancement filters using Core Image.
+//  Unified filter engine backed by OpenCV (via OpenCVWrapper).
+//  Each filter type maps to a specific OpenCV processing pipeline
+//  implemented in OpenCVWrapper.mm.
 //
 
 import UIKit
-import CoreImage
 
 enum ImageFilterType: String, CaseIterable {
-    case original   = "原图"
-    case grayscale  = "灰度"
-    case blackWhite = "黑白增强"
-    case enhanced   = "文档增强"
+    case original       = "原图"
+    case grayscale      = "灰度"
+    case blackWhite     = "黑白"
+    case adaptiveBW     = "文字增强"
+    case documentEnhance = "文档增强"
+    case whiteboard     = "白板"
+    case magicColor     = "魔法色彩"
+    case sharpen        = "锐化"
+    case noShadow       = "去阴影"
+    case sketch         = "素描"
+    case sealExtract    = "印章提取"
 }
 
 final class ImageFilterManager {
 
     static let shared = ImageFilterManager()
 
-    private let context = CIContext(options: [.useSoftwareRenderer: false])
+    private init() {
+        Logger.shared.log("Filter engine: \(OpenCVWrapper.openCVVersion())", level: .info)
+    }
 
-    private init() {}
-
-    /// Apply a filter to an image. Returns the processed image, or the original on failure.
+    /// Apply filter. Always call from a background thread for large images.
     func apply(_ filterType: ImageFilterType, to image: UIImage) -> UIImage {
-        guard filterType != .original else { return image }
-        guard let ciImage = CIImage(image: image) else { return image }
-
-        let outputCI: CIImage?
-
         switch filterType {
         case .original:
             return image
         case .grayscale:
-            outputCI = applyGrayscale(ciImage)
+            return OpenCVWrapper.grayscale(image)
         case .blackWhite:
-            outputCI = applyBlackWhiteEnhance(ciImage)
-        case .enhanced:
-            outputCI = applyDocumentEnhance(ciImage)
+            return OpenCVWrapper.binarize(image)
+        case .adaptiveBW:
+            return OpenCVWrapper.adaptiveThreshold(image)
+        case .documentEnhance:
+            return OpenCVWrapper.documentEnhance(image)
+        case .whiteboard:
+            return OpenCVWrapper.whiteboard(image)
+        case .magicColor:
+            return OpenCVWrapper.magicColor(image)
+        case .sharpen:
+            return OpenCVWrapper.sharpen(image)
+        case .noShadow:
+            return OpenCVWrapper.noShadow(image)
+        case .sketch:
+            return OpenCVWrapper.sketch(image)
+        case .sealExtract:
+            return OpenCVWrapper.sealExtract(image)
         }
-
-        guard let output = outputCI,
-              let cgImage = context.createCGImage(output, from: output.extent) else {
-            return image
-        }
-
-        return UIImage(cgImage: cgImage, scale: image.scale, orientation: .up)
-    }
-
-    // MARK: - Filters
-
-    private func applyGrayscale(_ input: CIImage) -> CIImage? {
-        guard let filter = CIFilter(name: "CIColorControls") else { return nil }
-        filter.setValue(input, forKey: kCIInputImageKey)
-        filter.setValue(0.0, forKey: kCIInputSaturationKey)
-        filter.setValue(0.05, forKey: kCIInputContrastKey)
-        return filter.outputImage
-    }
-
-    private func applyBlackWhiteEnhance(_ input: CIImage) -> CIImage? {
-        guard let desat = CIFilter(name: "CIColorControls") else { return nil }
-        desat.setValue(input, forKey: kCIInputImageKey)
-        desat.setValue(0.0, forKey: kCIInputSaturationKey)
-        desat.setValue(0.6, forKey: kCIInputContrastKey)
-        desat.setValue(0.05, forKey: kCIInputBrightnessKey)
-
-        guard let desatOutput = desat.outputImage,
-              let sharpen = CIFilter(name: "CISharpenLuminance") else { return nil }
-        sharpen.setValue(desatOutput, forKey: kCIInputImageKey)
-        sharpen.setValue(0.8, forKey: kCIInputSharpnessKey)
-        return sharpen.outputImage
-    }
-
-    private func applyDocumentEnhance(_ input: CIImage) -> CIImage? {
-        guard let exposure = CIFilter(name: "CIExposureAdjust") else { return nil }
-        exposure.setValue(input, forKey: kCIInputImageKey)
-        exposure.setValue(0.3, forKey: kCIInputEVKey)
-
-        guard let exposureOutput = exposure.outputImage,
-              let color = CIFilter(name: "CIColorControls") else { return nil }
-        color.setValue(exposureOutput, forKey: kCIInputImageKey)
-        color.setValue(0.3, forKey: kCIInputContrastKey)
-        color.setValue(0.7, forKey: kCIInputSaturationKey)
-
-        guard let colorOutput = color.outputImage,
-              let unsharp = CIFilter(name: "CIUnsharpMask") else { return nil }
-        unsharp.setValue(colorOutput, forKey: kCIInputImageKey)
-        unsharp.setValue(2.5, forKey: kCIInputRadiusKey)
-        unsharp.setValue(0.5, forKey: kCIInputIntensityKey)
-
-        return unsharp.outputImage
     }
 }

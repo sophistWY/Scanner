@@ -5,7 +5,10 @@
 
 import UIKit
 
-class BaseViewController: UIViewController {
+class BaseViewController: UIViewController, NavigationBarConfigurable {
+
+    /// Override to hide navigation bar for this VC. Default is false (show).
+    var prefersNavigationBarHidden: Bool { false }
 
     // MARK: - Lifecycle
 
@@ -22,15 +25,10 @@ class BaseViewController: UIViewController {
         Logger.shared.log("\(type(of: self)) deinit")
     }
 
-    // MARK: - Template Methods (Override in subclasses)
+    // MARK: - Template Methods
 
-    /// Add subviews and configure UI elements
     func setupUI() {}
-
-    /// Setup Auto Layout constraints (SnapKit)
     func setupConstraints() {}
-
-    /// Bind ViewModel observables to UI
     func bindViewModel() {}
 
     // MARK: - Utility

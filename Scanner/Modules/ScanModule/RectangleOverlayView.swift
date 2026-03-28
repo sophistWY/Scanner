@@ -2,14 +2,9 @@
 //  RectangleOverlayView.swift
 //  Scanner
 //
-//  Draws a quadrilateral overlay on top of the camera preview to
-//  indicate the detected document edges.
-//
-//  Visual design:
-//  - Semi-transparent blue fill
-//  - Solid blue border stroke
-//  - White corner handle circles
-//  - Animated appearance/disappearance
+//  Draws the detected document rectangle as a single unified overlay.
+//  All updates (shape + corners) happen in a single CATransaction
+//  with implicit animations disabled to keep everything in sync.
 //
 
 import UIKit
@@ -18,20 +13,20 @@ final class RectangleOverlayView: UIView {
 
     // MARK: - Appearance
 
-    private let fillColor = UIColor.systemBlue.withAlphaComponent(0.12)
+    private let fillColor = UIColor.systemBlue.withAlphaComponent(0.1)
     private let strokeColor = UIColor.systemBlue
     private let strokeWidth: CGFloat = 2.5
-    private let cornerRadius: CGFloat = 6.0
-    private let cornerColor = UIColor.white
+    private let handleRadius: CGFloat = 7.0
+    private let handleColor = UIColor.white
 
     // MARK: - Layers
 
     private let shapeLayer = CAShapeLayer()
-    private var cornerLayers: [CAShapeLayer] = []
+    private var handleLayers: [CAShapeLayer] = []
 
     // MARK: - State
 
-    private var currentRect: DetectedRectangle?
+    private var isShowing = false
 
     // MARK: - Init
 
@@ -53,93 +48,88 @@ final class RectangleOverlayView: UIView {
         shapeLayer.strokeColor = strokeColor.cgColor
         shapeLayer.lineWidth = strokeWidth
         shapeLayer.lineJoin = .round
+        shapeLayer.opacity = 0
         layer.addSublayer(shapeLayer)
 
-        // Create 4 corner circles
         for _ in 0..<4 {
-            let corner = CAShapeLayer()
-            corner.fillColor = cornerColor.cgColor
-            corner.strokeColor = strokeColor.cgColor
-            corner.lineWidth = 1.5
-            let diameter = cornerRadius * 2
-            corner.path = UIBezierPath(
-                ovalIn: CGRect(x: -cornerRadius, y: -cornerRadius, width: diameter, height: diameter)
-            ).cgPath
-            corner.shadowColor = UIColor.black.cgColor
-            corner.shadowOpacity = 0.3
-            corner.shadowOffset = CGSize(width: 0, height: 1)
-            corner.shadowRadius = 2
-            layer.addSublayer(corner)
-            cornerLayers.append(corner)
+            let handle = CAShapeLayer()
+            handle.fillColor = handleColor.cgColor
+            handle.strokeColor = strokeColor.cgColor
+            handle.lineWidth = 1.5
+            let d = handleRadius * 2
+            handle.path = UIBezierPath(ovalIn: CGRect(x: -handleRadius, y: -handleRadius, width: d, height: d)).cgPath
+            handle.shadowColor = UIColor.black.cgColor
+            handle.shadowOpacity = 0.4
+            handle.shadowOffset = .zero
+            handle.shadowRadius = 3
+            handle.opacity = 0
+            layer.addSublayer(handle)
+            handleLayers.append(handle)
         }
     }
 
     // MARK: - Public
 
-    /// Update the displayed rectangle. Pass nil to clear.
     func updateRectangle(_ rect: DetectedRectangle?) {
         guard let rect = rect else {
-            clearRectangle()
+            hide()
             return
         }
+        guard bounds.width > 0, bounds.height > 0 else { return }
 
         let scaled = rect.scaled(to: bounds.size)
-        currentRect = rect
+        let corners = [scaled.topLeft, scaled.topRight, scaled.bottomRight, scaled.bottomLeft]
 
-        // Build quad path
         let path = UIBezierPath()
-        path.move(to: scaled.topLeft)
-        path.addLine(to: scaled.topRight)
-        path.addLine(to: scaled.bottomRight)
-        path.addLine(to: scaled.bottomLeft)
+        path.move(to: corners[0])
+        for i in 1..<4 { path.addLine(to: corners[i]) }
         path.close()
 
-        // Animate shape transition for smooth updates
-        let animation = CABasicAnimation(keyPath: "path")
-        animation.fromValue = shapeLayer.path
-        animation.toValue = path.cgPath
-        animation.duration = 0.08
-        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        shapeLayer.add(animation, forKey: "pathAnimation")
+        // Update everything in one transaction with no implicit animations
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+
         shapeLayer.path = path.cgPath
 
-        // Position corner circles
-        let corners = [scaled.topLeft, scaled.topRight, scaled.bottomRight, scaled.bottomLeft]
-        for (i, position) in corners.enumerated() {
-            cornerLayers[i].position = position
-            cornerLayers[i].opacity = 1.0
+        for (i, pos) in corners.enumerated() {
+            handleLayers[i].position = pos
         }
 
-        // Fade in if previously hidden
-        if shapeLayer.opacity < 1.0 {
-            let fadeIn = CABasicAnimation(keyPath: "opacity")
-            fadeIn.fromValue = 0.0
-            fadeIn.toValue = 1.0
-            fadeIn.duration = 0.2
-            shapeLayer.add(fadeIn, forKey: "fadeIn")
-            shapeLayer.opacity = 1.0
+        CATransaction.commit()
+
+        if !isShowing {
+            show()
         }
     }
 
-    func clearRectangle() {
-        guard currentRect != nil else { return }
-        currentRect = nil
+    func hide() {
+        guard isShowing else { return }
+        isShowing = false
 
-        let fadeOut = CABasicAnimation(keyPath: "opacity")
-        fadeOut.fromValue = 1.0
-        fadeOut.toValue = 0.0
-        fadeOut.duration = 0.25
-        fadeOut.fillMode = .forwards
-        fadeOut.isRemovedOnCompletion = false
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.toValue = 0
+        fade.duration = 0.3
+        fade.fillMode = .forwards
+        fade.isRemovedOnCompletion = false
 
-        shapeLayer.add(fadeOut, forKey: "fadeOut")
-        shapeLayer.opacity = 0.0
-
-        for corner in cornerLayers {
-            if let copy = fadeOut.copy() as? CAAnimation {
-                corner.add(copy, forKey: "fadeOut")
-            }
-            corner.opacity = 0.0
+        shapeLayer.add(fade, forKey: "fade")
+        shapeLayer.opacity = 0
+        for h in handleLayers {
+            h.add(fade, forKey: "fade")
+            h.opacity = 0
         }
+    }
+
+    private func show() {
+        isShowing = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        shapeLayer.removeAnimation(forKey: "fade")
+        shapeLayer.opacity = 1
+        for h in handleLayers {
+            h.removeAnimation(forKey: "fade")
+            h.opacity = 1
+        }
+        CATransaction.commit()
     }
 }
