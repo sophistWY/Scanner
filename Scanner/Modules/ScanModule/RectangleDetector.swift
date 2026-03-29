@@ -5,11 +5,11 @@
 //  Real-time document edge detection via VNDetectRectanglesRequest.
 //
 //  Stability strategy (mimics CamScanner-level):
-//  1. Low confidence threshold (0.5) to capture more candidates.
-//  2. Heavy EMA smoothing (factor 0.25) – favours the previous position
-//     so the overlay barely jitters.
-//  3. Very long hold time (30+ frames) before clearing a lost rectangle.
-//  4. Frame throttle kept at 60ms to balance CPU vs responsiveness.
+//  1. Low confidence threshold to capture more candidates.
+//  2. Heavy EMA smoothing on corners – favours the previous position
+//     so Vision noise does not jerk the quad.
+//  3. Hold several missed frames before clearing a lost rectangle.
+//  4. Frame throttle (~33ms) balances CPU vs responsiveness.
 //
 //  Thread model:
 //  All mutable state is accessed ONLY on `detectionQueue`.
@@ -77,7 +77,8 @@ final class RectangleDetector {
     private var _isEnabled: Bool = true
     private var isProcessing = false
 
-    private let smoothingFactor: CGFloat = 0.4
+    /// Blend toward each new observation (lower = smoother, slightly more lag).
+    private let smoothingFactor: CGFloat = 0.2
     private var smoothedRect: DetectedRectangle?
 
     private let missingFrameThreshold = 12

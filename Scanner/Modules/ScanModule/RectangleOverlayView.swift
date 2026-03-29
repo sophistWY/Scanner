@@ -3,8 +3,9 @@
 //  Scanner
 //
 //  Draws the detected document rectangle as a single unified overlay.
-//  All updates (shape + corners) happen in a single CATransaction
-//  with implicit animations disabled to keep everything in sync.
+//  Vision updates arrive at a lower rate than the display; we run a short
+//  CADisplayLink pass that lerps corner positions each frame so the quad
+//  feels steady instead of stepping every detection tick.
 //
 
 import UIKit
@@ -18,6 +19,17 @@ final class RectangleOverlayView: UIView {
     private let strokeWidth: CGFloat = 2.5
     private let handleRadius: CGFloat = 7.0
     private let handleColor = UIColor.white
+
+    // MARK: - Display smoothing (screen space)
+
+    /// Per-second convergence toward the latest target corners (higher = snappier).
+    private let displaySmoothingRate: CGFloat = 14.0
+    private let snapDistance: CGFloat = 0.6
+    private let minFrameDuration: CFTimeInterval = 1.0 / 120.0
+
+    private var displayLink: CADisplayLink?
+    private var targetCorners: [CGPoint]?
+    private var displayedCorners: [CGPoint]?
 
     // MARK: - Layers
 
@@ -38,6 +50,10 @@ final class RectangleOverlayView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        stopDisplayLink()
     }
 
     private func setup() {
@@ -72,6 +88,9 @@ final class RectangleOverlayView: UIView {
 
     func updateRectangle(_ rect: DetectedRectangle?) {
         guard let rect = rect else {
+            stopDisplayLink()
+            targetCorners = nil
+            displayedCorners = nil
             hide()
             return
         }
@@ -79,31 +98,39 @@ final class RectangleOverlayView: UIView {
 
         let scaled = rect.scaled(to: bounds.size)
         let corners = [scaled.topLeft, scaled.topRight, scaled.bottomRight, scaled.bottomLeft]
+        targetCorners = corners
 
-        let path = UIBezierPath()
-        path.move(to: corners[0])
-        for i in 1..<4 { path.addLine(to: corners[i]) }
-        path.close()
-
-        // Update everything in one transaction with no implicit animations
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-
-        shapeLayer.path = path.cgPath
-
-        for (i, pos) in corners.enumerated() {
-            handleLayers[i].position = pos
+        if displayedCorners == nil {
+            displayedCorners = corners
+            applyCornersToLayers(corners)
+            if !isShowing {
+                show()
+            }
+            return
         }
 
-        CATransaction.commit()
+        if let disp = displayedCorners,
+           zip(disp, corners).allSatisfy({ hypot($0.0.x - $0.1.x, $0.0.y - $0.1.y) < snapDistance }) {
+            displayedCorners = corners
+            applyCornersToLayers(corners)
+            stopDisplayLink()
+            if !isShowing {
+                show()
+            }
+            return
+        }
 
         if !isShowing {
             show()
         }
+        startDisplayLinkIfNeeded()
     }
 
     func hide() {
         guard isShowing else { return }
+        stopDisplayLink()
+        targetCorners = nil
+        displayedCorners = nil
         isShowing = false
 
         let fade = CABasicAnimation(keyPath: "opacity")
@@ -130,6 +157,73 @@ final class RectangleOverlayView: UIView {
             h.removeAnimation(forKey: "fade")
             h.opacity = 1
         }
+        CATransaction.commit()
+    }
+
+    // MARK: - Display link smoothing
+
+    private func startDisplayLinkIfNeeded() {
+        guard displayLink == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(stepDisplayLink(_:)))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    private func stopDisplayLink() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    @objc private func stepDisplayLink(_ link: CADisplayLink) {
+        guard let target = targetCorners else {
+            stopDisplayLink()
+            return
+        }
+        guard var disp = displayedCorners else {
+            displayedCorners = target
+            applyCornersToLayers(target)
+            stopDisplayLink()
+            return
+        }
+
+        let dt = max(link.duration, minFrameDuration)
+        let k = CGFloat(1 - exp(-Double(displaySmoothingRate) * dt))
+
+        var maxResidual: CGFloat = 0
+        for i in 0..<4 {
+            let t = target[i]
+            let d = disp[i]
+            let nx = d.x + (t.x - d.x) * k
+            let ny = d.y + (t.y - d.y) * k
+            maxResidual = max(maxResidual, hypot(t.x - nx, t.y - ny))
+            disp[i] = CGPoint(x: nx, y: ny)
+        }
+
+        displayedCorners = disp
+        applyCornersToLayers(disp)
+
+        if maxResidual < snapDistance {
+            displayedCorners = target
+            applyCornersToLayers(target)
+            stopDisplayLink()
+        }
+    }
+
+    private func applyCornersToLayers(_ corners: [CGPoint]) {
+        let path = UIBezierPath()
+        path.move(to: corners[0])
+        for i in 1..<4 { path.addLine(to: corners[i]) }
+        path.close()
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+
+        shapeLayer.path = path.cgPath
+
+        for (i, pos) in corners.enumerated() {
+            handleLayers[i].position = pos
+        }
+
         CATransaction.commit()
     }
 }
