@@ -26,7 +26,7 @@ final class CapturedImagesPreviewController: BaseViewController {
         cv.showsHorizontalScrollIndicator = false
         cv.delegate = self
         cv.dataSource = self
-        cv.register(cellType: ImagePageCell.self)
+        cv.register(cellType: PageImageCell.self)
         return cv
     }()
 
@@ -66,15 +66,30 @@ final class CapturedImagesPreviewController: BaseViewController {
         didSet { pageLabel.text = "\(currentPage + 1) / \(images.count)" }
     }
 
-    // Keep original images for re-applying different filters
-    private var originalImages: [UIImage] = []
+    /// JPEG baseline for filters — avoids holding a second full UIImage per page in memory.
+    private var originalJPEGs: [Data] = []
 
     // MARK: - Init
 
     init(images: [UIImage], onDismiss: @escaping ([UIImage]) -> Void) {
-        self.images = images
-        self.originalImages = images
         self.onDismiss = onDismiss
+        var builtImages: [UIImage] = []
+        var builtJPEGs: [Data] = []
+        builtImages.reserveCapacity(images.count)
+        builtJPEGs.reserveCapacity(images.count)
+
+        for img in images {
+            autoreleasepool {
+                let n = img.constrainedToMaxPixelLength(AppConstants.ScanImage.maxPixelLength)
+                let q = AppConstants.ScanImage.originalJPEGQuality
+                let data = n.jpegData(compressionQuality: q) ?? n.pngData() ?? Data()
+                builtJPEGs.append(data)
+                builtImages.append(UIImage(data: data) ?? n)
+            }
+        }
+
+        self.images = builtImages
+        self.originalJPEGs = builtJPEGs
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -153,7 +168,7 @@ final class CapturedImagesPreviewController: BaseViewController {
         ) { [weak self] in
             guard let self else { return }
             self.images.remove(at: self.currentPage)
-            self.originalImages.remove(at: self.currentPage)
+            self.originalJPEGs.remove(at: self.currentPage)
             if self.images.isEmpty {
                 self.onDismiss(self.images)
                 self.dismiss(animated: true)
@@ -165,19 +180,24 @@ final class CapturedImagesPreviewController: BaseViewController {
     }
 
     @objc private func filterTapped(_ sender: UIButton) {
-        guard currentPage < originalImages.count else { return }
+        guard currentPage < originalJPEGs.count else { return }
         let filterTypes = ImageFilterType.allCases
         guard sender.tag < filterTypes.count else { return }
         let filterType = filterTypes[sender.tag]
+        let page = currentPage
+        let jpegData = originalJPEGs[page]
 
-        HUD.shared.showLoading()
+        HUD.shared.showLoading(message: "处理中…")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self else { return }
-            let filtered = ImageFilterManager.shared.apply(filterType, to: self.originalImages[self.currentPage])
+            let filtered: UIImage? = autoreleasepool {
+                guard let base = UIImage(data: jpegData) else { return nil }
+                return ImageFilterManager.shared.apply(filterType, to: base)
+            }
             DispatchQueue.main.async {
                 HUD.shared.hideLoading()
-                self.images[self.currentPage] = filtered
-                self.collectionView.reloadItems(at: [IndexPath(item: self.currentPage, section: 0)])
+                guard let self, let filtered, page < self.images.count else { return }
+                self.images[page] = filtered
+                self.collectionView.reloadItems(at: [IndexPath(item: page, section: 0)])
             }
         }
     }
@@ -192,7 +212,7 @@ extension CapturedImagesPreviewController: UICollectionViewDataSource, UICollect
     }
 
     func collectionView(_ cv: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = cv.dequeueReusableCell(for: indexPath, cellType: ImagePageCell.self)
+        let cell = cv.dequeueReusableCell(for: indexPath, cellType: PageImageCell.self)
         cell.configure(with: images[indexPath.item])
         return cell
     }
@@ -216,40 +236,7 @@ extension CapturedImagesPreviewController: UICollectionViewDataSource, UICollect
     }
 
     private func updateCurrentPage(_ scrollView: UIScrollView) {
-        guard scrollView.bounds.width > 0 else { return }
-        let page = Int(round(scrollView.contentOffset.x / scrollView.bounds.width))
+        let page = scrollView.currentHorizontalPage
         currentPage = max(0, min(page, images.count - 1))
-    }
-}
-
-// MARK: - ImagePageCell
-
-final class ImagePageCell: UICollectionViewCell {
-
-    private let imageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFit
-        iv.backgroundColor = .black
-        return iv
-    }()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        contentView.addSubview(imageView)
-        imageView.snp.makeConstraints { $0.edges.equalToSuperview() }
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func configure(with image: UIImage) {
-        imageView.image = image
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        imageView.image = nil
     }
 }

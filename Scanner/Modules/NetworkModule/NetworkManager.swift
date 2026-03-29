@@ -2,59 +2,95 @@
 //  NetworkManager.swift
 //  Scanner
 //
-//  Wraps MoyaProvider with unified response parsing, error handling, and logging.
-//
 
 import Foundation
 import Moya
 import UIKit
 
-// MARK: - Response Model
+// MARK: - API Response
 
 struct APIResponse<T: Decodable>: Decodable {
-    let code: Int
-    let message: String
+    let code: String
     let data: T?
+    let info: String?
 
-    var isSuccess: Bool { code == 0 || code == 200 }
+    var isSuccess: Bool { code == "1" }
+
+    enum CodingKeys: String, CodingKey {
+        case code, data, info
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let s = try? container.decode(String.self, forKey: .code) {
+            code = s
+        } else if let i = try? container.decode(Int.self, forKey: .code) {
+            code = String(i)
+        } else {
+            code = "0"
+        }
+        data = try container.decodeIfPresent(T.self, forKey: .data)
+        info = try container.decodeIfPresent(String.self, forKey: .info)
+    }
 }
 
-/// Generic empty response for endpoints that return no data.
-struct EmptyData: Decodable {}
+// MARK: - Response Models
 
-// MARK: - OCR Result Models
-
-struct OCRResult: Decodable {
-    let text: String
+struct STSImageInfo: Decodable {
+    let imagepath: String
+    let carduid: String
+    let ext: String
 }
 
-struct BankCardResult: Decodable {
-    let cardNumber: String
-    let bankName: String?
-    let cardType: String?
+struct STSConfig: Decodable {
+    let accesskeyid: String
+    let accesskeysecret: String
+    let bucket: String
+    let bucketendpoint: String
+    let endpoint: String
+    let expiration: String
+    let regionid: String
+    let securitytoken: String
+    let stsendpoint: String
 }
 
-struct BusinessLicenseResult: Decodable {
-    let companyName: String?
-    let registrationNumber: String?
-    let legalRepresentative: String?
-    let address: String?
+struct InfoQueryResult: Decodable {
+    let datastatus: String
+    let carduid: String
+    let imageurl: String?
+    let resultimg: String?
+    let imageurl1: String?
+
+    var isProcessing: Bool { datastatus == "2" }
+    var isCompleted: Bool { datastatus == "1" }
 }
+
+struct LanguageItem: Decodable {
+    let key: String
+    let originaltext: String
+    let translatedtext: String
+}
+
+typealias LanguageData = [String: [String: LanguageItem]]
 
 // MARK: - Network Error
 
 enum NetworkError: LocalizedError {
-    case serverError(code: Int, message: String)
+    case serverError(code: String, message: String)
     case decodingError
     case noData
+    case encryptionFailed
+    case pollingTimeout
     case networkUnavailable
 
     var errorDescription: String? {
         switch self {
-        case .serverError(_, let message): return message
-        case .decodingError:               return "数据解析失败"
-        case .noData:                      return "服务器未返回数据"
-        case .networkUnavailable:          return "网络连接不可用"
+        case .serverError(_, let msg): return msg.isEmpty ? "服务器错误" : msg
+        case .decodingError:           return "数据解析失败"
+        case .noData:                  return "服务器未返回数据"
+        case .encryptionFailed:        return "参数加密失败"
+        case .pollingTimeout:          return "处理超时，请重试"
+        case .networkUnavailable:      return "网络连接不可用"
         }
     }
 }
@@ -66,6 +102,7 @@ final class NetworkManager {
     static let shared = NetworkManager()
 
     private let provider: MoyaProvider<ScannerAPI>
+    private let crypto = AESCryptoHelper.shared
 
     private init() {
         #if DEBUG
@@ -75,49 +112,143 @@ final class NetworkManager {
         #else
         let plugins: [PluginType] = []
         #endif
-
         provider = MoyaProvider<ScannerAPI>(plugins: plugins)
     }
 
-    // MARK: - Public API
+    // MARK: - 1. 获取图片上传路径
 
-    /// Upload image for OCR text recognition.
-    func recognizeText(
-        image: UIImage,
-        completion: @escaping (Result<OCRResult, Error>) -> Void
+    func fetchImageUploadPath(
+        completion: @escaping (Result<STSImageInfo, Error>) -> Void
     ) {
-        guard let imageData = image.compressed(quality: AppConstants.ImageCompression.highQuality) else {
-            completion(.failure(NetworkError.noData))
+        let params = crypto.encryptedCommonParams()
+        guard let sign = crypto.generateSign(params: params) else {
+            completion(.failure(NetworkError.encryptionFailed))
             return
         }
-        let fileName = String.uniqueFileName(prefix: "ocr")
-        request(.ocrRecognize(imageData: imageData, fileName: fileName), completion: completion)
+        request(.stsImageName(sign: sign), completion: completion)
     }
 
-    /// Upload image for bank card recognition.
-    func recognizeBankCard(
-        image: UIImage,
-        completion: @escaping (Result<BankCardResult, Error>) -> Void
+    // MARK: - 2. 获取 STS 临时凭证
+
+    func fetchSTSConfig(
+        completion: @escaping (Result<STSConfig, Error>) -> Void
     ) {
-        guard let imageData = image.compressed(quality: AppConstants.ImageCompression.highQuality) else {
-            completion(.failure(NetworkError.noData))
+        let params: [String: Any] = [
+            "userid": crypto.userid,
+            "appid": kBundleID,
+            "uid": crypto.generateUID()
+        ]
+        guard let sign = crypto.generateSign(params: params) else {
+            completion(.failure(NetworkError.encryptionFailed))
             return
         }
-        let fileName = String.uniqueFileName(prefix: "bankcard")
-        request(.bankCardRecognize(imageData: imageData, fileName: fileName), completion: completion)
+        request(.stsConfig(sign: sign), completion: completion)
     }
 
-    /// Upload image for business license recognition.
-    func recognizeBusinessLicense(
-        image: UIImage,
-        completion: @escaping (Result<BusinessLicenseResult, Error>) -> Void
+    // MARK: - 3. 构建 OSS 回调 URL
+
+    func buildOSSCallbackURL(
+        carduid: String,
+        imagepath: String,
+        ext: String = kImageExtension,
+        pdftype: String? = nil,
+        imgtype: String? = nil,
+        pointstring: String? = nil
+    ) -> String? {
+        var params = crypto.encryptedCommonParams()
+        params["carduid"] = carduid
+        params["imagepath"] = imagepath
+        params["ext"] = ext
+        if let pdftype { params["pdftype"] = pdftype }
+        if let imgtype { params["imgtype"] = imgtype }
+        if let pointstring { params["pointstring"] = pointstring }
+
+        guard let sign = crypto.generateSign(params: params) else { return nil }
+        return "\(kHost)\(kPathSTSUpload)?sign=\(sign)"
+    }
+
+    // MARK: - 4. 查询处理结果
+
+    func queryProcessingResult(
+        carduid: String,
+        imagepath: String,
+        ext: String = kImageExtension,
+        completion: @escaping (Result<InfoQueryResult, Error>) -> Void
     ) {
-        guard let imageData = image.compressed(quality: AppConstants.ImageCompression.highQuality) else {
-            completion(.failure(NetworkError.noData))
-            return
+        var params = crypto.commonParams()
+        params["carduid"] = carduid
+        params["imagepath"] = imagepath
+        params["ext"] = ext
+
+        request(.infoQuery(params: params), completion: completion)
+    }
+
+    // MARK: - 4a. 轮询处理结果 (interval 2s, max 15 retries)
+
+    func pollProcessingResult(
+        carduid: String,
+        imagepath: String,
+        ext: String = kImageExtension,
+        retryCount: Int = 0,
+        completion: @escaping (Result<InfoQueryResult, Error>) -> Void
+    ) {
+        queryProcessingResult(carduid: carduid, imagepath: imagepath, ext: ext) { [weak self] result in
+            switch result {
+            case .success(let info):
+                if info.isCompleted {
+                    completion(.success(info))
+                } else if info.isProcessing, retryCount < kPollingMaxRetry {
+                    DispatchQueue.global().asyncAfter(deadline: .now() + kPollingInterval) {
+                        self?.pollProcessingResult(
+                            carduid: carduid,
+                            imagepath: imagepath,
+                            ext: ext,
+                            retryCount: retryCount + 1,
+                            completion: completion
+                        )
+                    }
+                } else {
+                    completion(.failure(NetworkError.pollingTimeout))
+                }
+
+            case .failure(let error):
+                if retryCount < kPollingMaxRetry {
+                    DispatchQueue.global().asyncAfter(deadline: .now() + kPollingInterval) {
+                        self?.pollProcessingResult(
+                            carduid: carduid,
+                            imagepath: imagepath,
+                            ext: ext,
+                            retryCount: retryCount + 1,
+                            completion: completion
+                        )
+                    }
+                } else {
+                    completion(.failure(error))
+                }
+            }
         }
-        let fileName = String.uniqueFileName(prefix: "license")
-        request(.businessLicenseRecognize(imageData: imageData, fileName: fileName), completion: completion)
+    }
+
+    // MARK: - 5. 获取多语言翻译
+
+    func fetchLanguages(
+        completion: @escaping (Result<LanguageData, Error>) -> Void
+    ) {
+        request(.language, completion: completion)
+    }
+
+    // MARK: - 6. 裁剪上传（直接请求）
+
+    func cropUpload(
+        extraParams: [String: Any] = [:],
+        completion: @escaping (Result<STSImageInfo, Error>) -> Void
+    ) {
+        var params: [String: Any] = [
+            "userid": crypto.userid,
+            "appid": kBundleID
+        ]
+        for (k, v) in extraParams { params[k] = v }
+        request(.cropUpload(params: params), completion: completion)
     }
 
     // MARK: - Generic Request
@@ -130,13 +261,16 @@ final class NetworkManager {
             switch result {
             case .success(let response):
                 do {
-                    let apiResponse = try JSONDecoder().decode(APIResponse<T>.self, from: response.data)
-                    if apiResponse.isSuccess, let data = apiResponse.data {
+                    let apiResp = try JSONDecoder().decode(
+                        APIResponse<T>.self,
+                        from: response.data
+                    )
+                    if apiResp.isSuccess, let data = apiResp.data {
                         completion(.success(data))
                     } else {
                         completion(.failure(NetworkError.serverError(
-                            code: apiResponse.code,
-                            message: apiResponse.message
+                            code: apiResp.code,
+                            message: apiResp.info ?? ""
                         )))
                     }
                 } catch {

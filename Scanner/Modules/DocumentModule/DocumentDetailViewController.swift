@@ -141,7 +141,7 @@ final class DocumentDetailViewController: BaseViewController {
             defaultText: document.name
         ) { [weak self] newName in
             guard let self else { return }
-            WCDBManager.shared.updateDocumentName(newName, forId: self.document.id)
+            DocumentService.shared.renameDocument(id: self.document.id, newName: newName)
             self.title = newName
             self.detailDelegate?.documentDetail(self, didRenameTo: newName)
         }
@@ -155,9 +155,7 @@ final class DocumentDetailViewController: BaseViewController {
             confirmStyle: .destructive
         ) { [weak self] in
             guard let self else { return }
-            FileHelper.shared.deleteFile(at: self.document.pdfURL)
-            FileHelper.shared.deleteFile(at: self.document.thumbnailURL)
-            WCDBManager.shared.deleteDocument(byId: self.document.id)
+            DocumentService.shared.deleteDocument(self.document)
             self.detailDelegate?.documentDetailDidDelete(self)
             self.navigationController?.popViewController(animated: true)
         }

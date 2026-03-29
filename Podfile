@@ -12,7 +12,14 @@ target 'Scanner' do
   # Networking
   pod 'Moya'
   
+  # Image Processing
   pod 'OpenCV', '~> 4.3.0'
+  
+  # Encryption
+  pod 'CryptoSwift'
+  
+  # OSS Upload
+  pod 'AliyunOSSiOS'
 
 end
 

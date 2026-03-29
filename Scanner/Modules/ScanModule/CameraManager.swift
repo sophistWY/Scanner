@@ -199,7 +199,8 @@ final class CameraManager: NSObject {
             return
         }
         session.addOutput(photoOutput)
-        photoOutput.isHighResolutionCaptureEnabled = true
+        // Full-res stills (12MP+) × multiple pages easily exceeds iOS memory limits; downsample in ScanViewModel.
+        photoOutput.isHighResolutionCaptureEnabled = false
 
         videoOutput.setSampleBufferDelegate(self, queue: videoOutputQueue)
         videoOutput.alwaysDiscardsLateVideoFrames = true

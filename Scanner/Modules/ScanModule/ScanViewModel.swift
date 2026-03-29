@@ -61,8 +61,11 @@ final class ScanViewModel: BaseViewModel {
     // MARK: - Actions
 
     func addCapturedImage(_ image: UIImage) {
+        let normalized = autoreleasepool {
+            image.constrainedToMaxPixelLength(AppConstants.ScanImage.maxPixelLength)
+        }
         var images = capturedImages.value
-        images.append(image)
+        images.append(normalized)
         capturedImages.value = images
         updateStatus()
     }

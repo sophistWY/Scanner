@@ -144,7 +144,7 @@ final class CropViewController: BaseViewController {
             bottomRight: toImageCoord(c[2])
         )
 
-        HUD.shared.showLoading()
+        HUD.shared.showLoading(message: "处理中…")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let cropped = ImageCropper.perspectiveCorrectedImage(

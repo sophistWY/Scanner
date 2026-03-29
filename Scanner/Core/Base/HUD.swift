@@ -2,8 +2,8 @@
 //  HUD.swift
 //  Scanner
 //
-//  Lightweight HUD for loading, success, error, toast display.
-//  Attaches to the key window so it's visible above all VCs.
+//  Global HUD (SVProgressHUD-style): dimmed overlay, blocks interaction,
+//  centered spinner + message. Supports nested show/hide for async flows.
 //
 
 import UIKit
@@ -11,16 +11,16 @@ import SnapKit
 
 final class HUD {
 
-    // MARK: - Singleton
-
     static let shared = HUD()
     private init() {}
 
-    // MARK: - Properties
-
     private var overlayView: UIView?
     private var hudContainer: UIView?
+    private weak var messageLabel: UILabel?
     private var dismissWorkItem: DispatchWorkItem?
+
+    /// Balanced with hideLoading; only the last hide dismisses the overlay.
+    private var loadingDepth: Int = 0
 
     private var keyWindow: UIWindow? {
         UIApplication.shared.connectedScenes
@@ -33,14 +33,22 @@ final class HUD {
 
     func showLoading(message: String? = nil) {
         DispatchQueue.main.async { [weak self] in
-            self?.dismiss(animated: false)
-            self?.showHUD(icon: nil, message: message, isLoading: true, autoDismiss: false)
+            guard let self else { return }
+            self.loadingDepth += 1
+            if self.loadingDepth == 1 {
+                self.presentLoadingOverlay(message: message)
+            } else {
+                self.updateLoadingMessage(message)
+            }
         }
     }
 
     func hideLoading() {
         DispatchQueue.main.async { [weak self] in
-            self?.dismiss(animated: true)
+            guard let self else { return }
+            self.loadingDepth = max(0, self.loadingDepth - 1)
+            guard self.loadingDepth == 0 else { return }
+            self.dismiss(animated: true)
         }
     }
 
@@ -50,7 +58,7 @@ final class HUD {
         DispatchQueue.main.async { [weak self] in
             self?.dismiss(animated: false)
             let icon = UIImage(systemName: "checkmark.circle.fill")
-            self?.showHUD(icon: icon, iconTint: .systemGreen, message: message, isLoading: false, autoDismiss: true, duration: duration)
+            self?.showToastHUD(icon: icon, iconTint: .systemGreen, message: message, duration: duration)
         }
     }
 
@@ -58,57 +66,111 @@ final class HUD {
         DispatchQueue.main.async { [weak self] in
             self?.dismiss(animated: false)
             let icon = UIImage(systemName: "xmark.circle.fill")
-            self?.showHUD(icon: icon, iconTint: .systemRed, message: message, isLoading: false, autoDismiss: true, duration: duration)
+            self?.showToastHUD(icon: icon, iconTint: .systemRed, message: message, duration: duration)
         }
     }
 
     func showToast(_ message: String, duration: TimeInterval = 1.5) {
         DispatchQueue.main.async { [weak self] in
             self?.dismiss(animated: false)
-            self?.showHUD(icon: nil, message: message, isLoading: false, autoDismiss: true, duration: duration)
+            self?.showToastHUD(icon: nil, iconTint: .white, message: message, duration: duration)
         }
     }
 
-    // MARK: - Private
+    // MARK: - Private — Loading
 
-    private func showHUD(
+    private func presentLoadingOverlay(message: String?) {
+        dismissWorkItem?.cancel()
+        dismissWorkItem = nil
+
+        guard let window = keyWindow else { return }
+
+        let overlay = UIView()
+        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        overlay.isUserInteractionEnabled = true
+        overlay.alpha = 0
+        window.addSubview(overlay)
+        overlay.snp.makeConstraints { $0.edges.equalToSuperview() }
+        overlayView = overlay
+
+        let container = UIView()
+        container.backgroundColor = UIColor(white: 0.12, alpha: 0.92)
+        container.layer.cornerRadius = 14
+        container.clipsToBounds = true
+        overlay.addSubview(container)
+        hudContainer = container
+
+        let spinner = UIActivityIndicatorView(style: .large)
+        spinner.color = .white
+        spinner.startAnimating()
+        container.addSubview(spinner)
+        spinner.snp.makeConstraints { make in
+            make.top.equalToSuperview().offset(22)
+            make.centerX.equalToSuperview()
+            make.width.height.equalTo(36)
+        }
+
+        let label = UILabel()
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 15, weight: .medium)
+        label.textAlignment = .center
+        label.numberOfLines = 4
+        label.text = message
+        label.isHidden = message == nil || message?.isEmpty == true
+        container.addSubview(label)
+        label.snp.makeConstraints { make in
+            make.top.equalTo(spinner.snp.bottom).offset(14)
+            make.leading.equalToSuperview().offset(20)
+            make.trailing.equalToSuperview().offset(-20)
+            make.bottom.equalToSuperview().offset(-20)
+        }
+        messageLabel = label
+
+        container.snp.makeConstraints { make in
+            make.center.equalToSuperview()
+            make.width.greaterThanOrEqualTo(120)
+            make.width.lessThanOrEqualTo(260)
+        }
+
+        UIView.animate(withDuration: 0.22) {
+            overlay.alpha = 1
+        }
+    }
+
+    private func updateLoadingMessage(_ message: String?) {
+        messageLabel?.text = message
+        let hide = message == nil || message?.isEmpty == true
+        messageLabel?.isHidden = hide
+    }
+
+    // MARK: - Private — Toast
+
+    private func showToastHUD(
         icon: UIImage?,
-        iconTint: UIColor = .white,
-        message: String?,
-        isLoading: Bool,
-        autoDismiss: Bool,
-        duration: TimeInterval = 1.5
+        iconTint: UIColor,
+        message: String,
+        duration: TimeInterval
     ) {
         guard let window = keyWindow else { return }
 
         let overlay = UIView()
-        overlay.backgroundColor = .clear
+        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        overlay.isUserInteractionEnabled = true
         overlay.alpha = 0
         window.addSubview(overlay)
         overlay.snp.makeConstraints { $0.edges.equalToSuperview() }
-        self.overlayView = overlay
+        overlayView = overlay
 
         let container = UIView()
-        container.backgroundColor = UIColor.black.withAlphaComponent(0.8)
-        container.layer.cornerRadius = 12
+        container.backgroundColor = UIColor(white: 0.12, alpha: 0.92)
+        container.layer.cornerRadius = 14
         container.clipsToBounds = true
         overlay.addSubview(container)
-        self.hudContainer = container
+        hudContainer = container
 
         var lastView: UIView = container
 
-        if isLoading {
-            let spinner = UIActivityIndicatorView(style: .large)
-            spinner.color = .white
-            spinner.startAnimating()
-            container.addSubview(spinner)
-            spinner.snp.makeConstraints { make in
-                make.top.equalToSuperview().offset(20)
-                make.centerX.equalToSuperview()
-                make.width.height.equalTo(40)
-            }
-            lastView = spinner
-        } else if let icon = icon {
+        if let icon = icon {
             let imageView = UIImageView(image: icon)
             imageView.tintColor = iconTint
             imageView.contentMode = .scaleAspectFit
@@ -121,54 +183,48 @@ final class HUD {
             lastView = imageView
         }
 
-        if let message = message, !message.isEmpty {
-            let label = UILabel()
-            label.text = message
-            label.textColor = .white
-            label.font = .systemFont(ofSize: 14, weight: .medium)
-            label.textAlignment = .center
-            label.numberOfLines = 3
-            container.addSubview(label)
-            label.snp.makeConstraints { make in
-                if lastView === container {
-                    make.top.equalToSuperview().offset(16)
-                } else {
-                    make.top.equalTo(lastView.snp.bottom).offset(12)
-                }
-                make.leading.equalToSuperview().offset(16)
-                make.trailing.equalToSuperview().offset(-16)
-                make.bottom.equalToSuperview().offset(-16)
+        let label = UILabel()
+        label.text = message
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 15, weight: .medium)
+        label.textAlignment = .center
+        label.numberOfLines = 5
+        container.addSubview(label)
+        label.snp.makeConstraints { make in
+            if lastView === container {
+                make.top.equalToSuperview().offset(18)
+            } else {
+                make.top.equalTo(lastView.snp.bottom).offset(12)
             }
-        } else {
-            if lastView !== container {
-                lastView.snp.makeConstraints { make in
-                    make.bottom.equalToSuperview().offset(-20)
-                }
-            }
+            make.leading.equalToSuperview().offset(18)
+            make.trailing.equalToSuperview().offset(-18)
+            make.bottom.equalToSuperview().offset(-18)
         }
 
         container.snp.makeConstraints { make in
             make.center.equalToSuperview()
             make.width.greaterThanOrEqualTo(100)
-            make.width.lessThanOrEqualTo(240)
+            make.width.lessThanOrEqualTo(280)
         }
 
-        UIView.animate(withDuration: 0.2) {
+        UIView.animate(withDuration: 0.22) {
             overlay.alpha = 1
         }
 
-        if autoDismiss {
-            let work = DispatchWorkItem { [weak self] in
-                self?.dismiss(animated: true)
-            }
-            self.dismissWorkItem = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
+        let work = DispatchWorkItem { [weak self] in
+            self?.dismiss(animated: true)
         }
+        dismissWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
     }
+
+    // MARK: - Private — Dismiss
 
     private func dismiss(animated: Bool) {
         dismissWorkItem?.cancel()
         dismissWorkItem = nil
+        loadingDepth = 0
+        messageLabel = nil
 
         guard let overlay = overlayView else { return }
 
@@ -181,7 +237,7 @@ final class HUD {
         } else {
             overlay.removeFromSuperview()
         }
-        self.overlayView = nil
-        self.hudContainer = nil
+        overlayView = nil
+        hudContainer = nil
     }
 }

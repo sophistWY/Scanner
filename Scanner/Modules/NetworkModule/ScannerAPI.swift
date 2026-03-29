@@ -2,64 +2,84 @@
 //  ScannerAPI.swift
 //  Scanner
 //
-//  Moya-style API target enum defining all backend endpoints.
-//
 
 import Foundation
 import Moya
 
 enum ScannerAPI {
-    /// OCR: upload a document image for text recognition.
-    case ocrRecognize(imageData: Data, fileName: String)
-    /// Bank card: upload image for card number recognition.
-    case bankCardRecognize(imageData: Data, fileName: String)
-    /// Business license: upload image for license info extraction.
-    case businessLicenseRecognize(imageData: Data, fileName: String)
+    /// 1. 获取图片上传路径 (encrypted)
+    case stsImageName(sign: String)
+    /// 2. 获取 STS 临时凭证 (encrypted)
+    case stsConfig(sign: String)
+    /// 4. 查询处理结果 (plain)
+    case infoQuery(params: [String: Any])
+    /// 5. 获取多语言翻译 (plain, different host)
+    case language
+    /// 6. 裁剪上传 - 直接请求 (plain)
+    case cropUpload(params: [String: Any])
 }
 
 extension ScannerAPI: TargetType {
 
     var baseURL: URL {
-        // Replace with actual server URL in production
-        return URL(string: "https://api.scanner-app.example.com/v1")!
+        switch self {
+        case .language:
+            return URL(string: kLanguageHost)!
+        default:
+            return URL(string: kHost)!
+        }
     }
 
     var path: String {
         switch self {
-        case .ocrRecognize:
-            return "/ocr/recognize"
-        case .bankCardRecognize:
-            return "/bankcard/recognize"
-        case .businessLicenseRecognize:
-            return "/license/recognize"
+        case .stsImageName:  return kPathSTSImageName
+        case .stsConfig:     return kPathSTSConfig
+        case .infoQuery:     return kPathInfoQuery
+        case .language:      return kPathLanguage
+        case .cropUpload:    return kPathSTSUpload
         }
     }
 
     var method: Moya.Method {
-        return .post
+        return .get
     }
 
     var task: Moya.Task {
         switch self {
-        case .ocrRecognize(let imageData, let fileName),
-             .bankCardRecognize(let imageData, let fileName),
-             .businessLicenseRecognize(let imageData, let fileName):
-            let formData = MultipartFormData(
-                provider: .data(imageData),
-                name: "image",
-                fileName: fileName,
-                mimeType: "image/jpeg"
+        case .stsImageName(let sign):
+            return .requestParameters(
+                parameters: ["sign": sign],
+                encoding: URLEncoding.queryString
             )
-            return .uploadMultipart([formData])
+
+        case .stsConfig(let sign):
+            return .requestParameters(
+                parameters: ["sign": sign],
+                encoding: URLEncoding.queryString
+            )
+
+        case .infoQuery(let params):
+            return .requestParameters(
+                parameters: params,
+                encoding: URLEncoding.queryString
+            )
+
+        case .language:
+            return .requestParameters(
+                parameters: ["appid": kBundleID],
+                encoding: URLEncoding.queryString
+            )
+
+        case .cropUpload(let params):
+            return .requestParameters(
+                parameters: params,
+                encoding: URLEncoding.queryString
+            )
         }
     }
 
     var headers: [String: String]? {
-        return [
-            "Accept": "application/json",
-            // Auth token would go here in production
-            // "Authorization": "Bearer \(token)"
-        ]
+        return ["Accept": "application/json"]
     }
 
     var validationType: ValidationType {

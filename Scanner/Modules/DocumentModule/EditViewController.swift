@@ -28,7 +28,8 @@ final class EditViewController: BaseViewController {
     private(set) var documentName: String
 
     private var images: [UIImage]
-    private var originalImages: [UIImage]
+    /// Baseline JPEG per page (filters / revert decode from this — avoids duplicating full bitmaps).
+    private var originalJPEGs: [Data]
 
     private var currentPage: Int = 0 {
         didSet {
@@ -55,7 +56,7 @@ final class EditViewController: BaseViewController {
         cv.showsHorizontalScrollIndicator = false
         cv.delegate = self
         cv.dataSource = self
-        cv.register(cellType: EditImageCell.self)
+        cv.register(cellType: PageImageCell.self)
         return cv
     }()
 
@@ -98,12 +99,22 @@ final class EditViewController: BaseViewController {
     // MARK: - Init
 
     init(images: [UIImage], documentName: String, documentId: Int64? = nil) {
-        self.images = images
-        self.originalImages = images.map { img in
-            guard let cgImage = img.cgImage else { return img }
-            return UIImage(cgImage: cgImage, scale: img.scale, orientation: img.imageOrientation)
+        var builtImages: [UIImage] = []
+        var builtJPEGs: [Data] = []
+        builtImages.reserveCapacity(images.count)
+        builtJPEGs.reserveCapacity(images.count)
+        for img in images {
+            autoreleasepool {
+                let n = img.constrainedToMaxPixelLength(AppConstants.ScanImage.maxPixelLength)
+                let q = AppConstants.ScanImage.originalJPEGQuality
+                let data = n.jpegData(compressionQuality: q) ?? n.pngData() ?? Data()
+                builtJPEGs.append(data)
+                builtImages.append(UIImage(data: data) ?? n)
+            }
         }
-        self.appliedFilterIndex = Array(repeating: 0, count: images.count)
+        self.images = builtImages
+        self.originalJPEGs = builtJPEGs
+        self.appliedFilterIndex = Array(repeating: 0, count: builtImages.count)
         self.documentName = documentName
         self.documentId = documentId
         super.init(nibName: nil, bundle: nil)
@@ -266,8 +277,8 @@ final class EditViewController: BaseViewController {
     private var thumbnailGeneration: Int = 0
 
     private func generateFilterThumbnails() {
-        guard currentPage < originalImages.count else { return }
-        let sourceImage = originalImages[currentPage]
+        guard currentPage < originalJPEGs.count,
+              let sourceImage = UIImage(data: originalJPEGs[currentPage]) else { return }
         let thumbSize = CGSize(width: 88, height: 88)
         let thumb = sourceImage.resized(to: thumbSize)
         thumbnailGeneration += 1
@@ -333,11 +344,15 @@ final class EditViewController: BaseViewController {
     }
 
     @objc private func cropTapped() {
-        guard currentPage < images.count else { return }
-        let cropVC = CropViewController(image: originalImages[currentPage]) { [weak self] cropped in
+        guard currentPage < images.count,
+              let base = UIImage(data: originalJPEGs[currentPage]) else { return }
+        let cropVC = CropViewController(image: base) { [weak self] cropped in
             guard let self else { return }
-            self.originalImages[self.currentPage] = cropped
-            self.images[self.currentPage] = cropped
+            let n = cropped.constrainedToMaxPixelLength(AppConstants.ScanImage.maxPixelLength)
+            let q = AppConstants.ScanImage.originalJPEGQuality
+            let data = n.jpegData(compressionQuality: q) ?? n.pngData() ?? Data()
+            self.originalJPEGs[self.currentPage] = data
+            self.images[self.currentPage] = UIImage(data: data) ?? n
             self.appliedFilterIndex[self.currentPage] = 0
             self.collectionView.reloadItems(at: [IndexPath(item: self.currentPage, section: 0)])
             self.updateFilterSelection()
@@ -348,8 +363,9 @@ final class EditViewController: BaseViewController {
     }
 
     @objc private func revertTapped() {
-        guard currentPage < originalImages.count else { return }
-        images[currentPage] = originalImages[currentPage]
+        guard currentPage < originalJPEGs.count,
+              let restored = UIImage(data: originalJPEGs[currentPage]) else { return }
+        images[currentPage] = restored
         appliedFilterIndex[currentPage] = 0
         collectionView.reloadItems(at: [IndexPath(item: currentPage, section: 0)])
         updateFilterSelection()
@@ -369,7 +385,7 @@ final class EditViewController: BaseViewController {
         ) { [weak self] in
             guard let self else { return }
             self.images.remove(at: self.currentPage)
-            self.originalImages.remove(at: self.currentPage)
+            self.originalJPEGs.remove(at: self.currentPage)
             self.appliedFilterIndex.remove(at: self.currentPage)
             self.currentPage = min(self.currentPage, self.images.count - 1)
             self.collectionView.reloadData()
@@ -379,23 +395,28 @@ final class EditViewController: BaseViewController {
     @objc private func filterItemTapped(_ gesture: UITapGestureRecognizer) {
         guard let idx = gesture.view?.tag else { return }
         let filters = ImageFilterType.allCases
-        guard idx < filters.count, currentPage < originalImages.count else { return }
+        guard idx < filters.count, currentPage < originalJPEGs.count else { return }
 
         appliedFilterIndex[currentPage] = idx
 
         if idx == 0 {
-            images[currentPage] = originalImages[currentPage]
+            if let restored = UIImage(data: originalJPEGs[currentPage]) {
+                images[currentPage] = restored
+            }
             collectionView.reloadItems(at: [IndexPath(item: currentPage, section: 0)])
             updateFilterSelection()
             return
         }
 
-        HUD.shared.showLoading()
-        let original = originalImages[currentPage]
+        guard let original = UIImage(data: originalJPEGs[currentPage]) else { return }
+
+        HUD.shared.showLoading(message: "处理中…")
         let filterType = filters[idx]
         let page = currentPage
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = ImageFilterManager.shared.apply(filterType, to: original)
+            let result = autoreleasepool {
+                ImageFilterManager.shared.apply(filterType, to: original)
+            }
             DispatchQueue.main.async {
                 HUD.shared.hideLoading()
                 guard let self, page == self.currentPage else { return }
@@ -416,7 +437,7 @@ extension EditViewController: UICollectionViewDataSource, UICollectionViewDelega
     }
 
     func collectionView(_ cv: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = cv.dequeueReusableCell(for: indexPath, cellType: EditImageCell.self)
+        let cell = cv.dequeueReusableCell(for: indexPath, cellType: PageImageCell.self)
         cell.configure(with: images[indexPath.item])
         return cell
     }
@@ -438,46 +459,7 @@ extension EditViewController: UICollectionViewDataSource, UICollectionViewDelega
     }
 
     private func syncCurrentPage(_ sv: UIScrollView) {
-        guard sv.bounds.width > 0 else { return }
-        let page = Int(round(sv.contentOffset.x / sv.bounds.width))
+        let page = sv.currentHorizontalPage
         currentPage = max(0, min(page, images.count - 1))
-    }
-}
-
-// MARK: - EditImageCell
-
-final class EditImageCell: UICollectionViewCell {
-
-    private let imageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFit
-        iv.backgroundColor = .black
-        return iv
-    }()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        contentView.addSubview(imageView)
-        imageView.snp.makeConstraints { $0.edges.equalToSuperview() }
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
-    func configure(with image: UIImage) {
-        imageView.image = image
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        imageView.image = nil
-    }
-}
-
-// MARK: - Array safe subscript
-
-private extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
     }
 }

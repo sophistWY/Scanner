@@ -42,4 +42,11 @@ enum AppConstants {
         static let largePadding: CGFloat = 24
         static let cellHeight: CGFloat = 80
     }
+
+    /// Memory-friendly bounds for captured / imported scan images (pixel space, not points).
+    enum ScanImage {
+        static let maxPixelLength: CGFloat = 2048
+        static let thumbnailMaxPixelLength: CGFloat = 256
+        static let originalJPEGQuality: CGFloat = 0.88
+    }
 }

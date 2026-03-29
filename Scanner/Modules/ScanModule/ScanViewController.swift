@@ -274,7 +274,8 @@ final class ScanViewController: BaseViewController {
             self?.countBadge.isHidden = count == 0
 
             if let lastImage = images.last {
-                self?.thumbnailButton.setImage(lastImage, for: .normal)
+                let thumb = lastImage.constrainedToMaxPixelLength(AppConstants.ScanImage.thumbnailMaxPixelLength)
+                self?.thumbnailButton.setImage(thumb, for: .normal)
                 self?.thumbnailButton.imageView?.contentMode = .scaleAspectFill
             }
             self?.countBadge.text = "\(count)"
@@ -421,25 +422,32 @@ extension ScanViewController: CameraManagerDelegate {
     }
 
     func cameraManager(_ manager: CameraManager, didCapturePhoto image: UIImage) {
+        HUD.shared.showLoading(message: "处理中…")
+
         if viewModel.scanType.needsRectangleDetection {
             rectangleDetector.detectInImage(image) { [weak self] rect in
                 guard let self else { return }
                 if let rect = rect {
                     DispatchQueue.global(qos: .userInitiated).async {
-                        let cropped = ImageCropper.perspectiveCorrectedImage(from: image, rectangle: rect)
+                        let toAdd: UIImage = autoreleasepool {
+                            ImageCropper.perspectiveCorrectedImage(from: image, rectangle: rect) ?? image
+                        }
                         DispatchQueue.main.async {
-                            self.viewModel.addCapturedImage(cropped ?? image)
+                            self.viewModel.addCapturedImage(toAdd)
                             self.viewModel.canCapture.value = true
+                            HUD.shared.hideLoading()
                         }
                     }
                 } else {
-                    self.viewModel.addCapturedImage(image)
-                    self.viewModel.canCapture.value = true
+                    viewModel.addCapturedImage(image)
+                    viewModel.canCapture.value = true
+                    HUD.shared.hideLoading()
                 }
             }
         } else {
             viewModel.addCapturedImage(image)
             viewModel.canCapture.value = true
+            HUD.shared.hideLoading()
         }
     }
 
@@ -493,7 +501,9 @@ extension ScanViewController: PHPickerViewControllerDelegate {
         group.notify(queue: .main) { [weak self] in
             HUD.shared.hideLoading()
             for image in importedImages {
-                self?.viewModel.addCapturedImage(image)
+                autoreleasepool {
+                    self?.viewModel.addCapturedImage(image.fixOrientation())
+                }
             }
             if !importedImages.isEmpty {
                 HUD.shared.showSuccess("已导入 \(importedImages.count) 张")

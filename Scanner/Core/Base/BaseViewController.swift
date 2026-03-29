@@ -41,24 +41,12 @@ class BaseViewController: UIViewController, NavigationBarConfigurable {
         present(alert, animated: true)
     }
 
-    func showLoading() {
-        let tag = 9999
-        guard view.viewWithTag(tag) == nil else { return }
-        let overlay = UIView(frame: view.bounds)
-        overlay.tag = tag
-        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.3)
-        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        let indicator = UIActivityIndicatorView(style: .large)
-        indicator.color = .white
-        indicator.center = overlay.center
-        indicator.autoresizingMask = [.flexibleLeftMargin, .flexibleRightMargin,
-                                      .flexibleTopMargin, .flexibleBottomMargin]
-        indicator.startAnimating()
-        overlay.addSubview(indicator)
-        view.addSubview(overlay)
+    /// Uses global `HUD` (dimmed overlay + spinner), same as scan / network flows.
+    func showLoading(message: String? = nil) {
+        HUD.shared.showLoading(message: message)
     }
 
     func hideLoading() {
-        view.viewWithTag(9999)?.removeFromSuperview()
+        HUD.shared.hideLoading()
     }
 }

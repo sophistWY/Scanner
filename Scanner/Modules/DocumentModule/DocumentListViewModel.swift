@@ -22,6 +22,7 @@ final class DocumentListViewModel: BaseViewModel {
     // MARK: - State
 
     private(set) var sortOrder: DocumentSortOrder = .dateDescending
+    private let service = DocumentService.shared
 
     // MARK: - Actions
 
@@ -47,117 +48,37 @@ final class DocumentListViewModel: BaseViewModel {
     }
 
     func deleteDocument(at index: Int) {
-        guard index >= 0, index < documents.value.count else { return }
-        let doc = documents.value[index]
-
-        FileHelper.shared.deleteFile(at: doc.pdfURL)
-        FileHelper.shared.deleteFile(at: doc.thumbnailURL)
-
-        WCDBManager.shared.deleteDocument(byId: doc.id)
+        guard let doc = documents.value[safe: index] else { return }
+        service.deleteDocument(doc)
         loadDocuments()
     }
 
     func renameDocument(at index: Int, newName: String) {
-        guard index >= 0, index < documents.value.count else { return }
-        let doc = documents.value[index]
-        WCDBManager.shared.updateDocumentName(newName, forId: doc.id)
+        guard let doc = documents.value[safe: index] else { return }
+        service.renameDocument(id: doc.id, newName: newName)
         loadDocuments()
     }
 
     func updateDocument(id: Int64, name: String, images: [UIImage], completion: @escaping (Bool) -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            guard let oldDoc = WCDBManager.shared.getDocument(byId: id) else {
-                DispatchQueue.main.async { completion(false) }
-                return
-            }
-
-            let timestamp = String.uniqueFileName(prefix: "doc", extension: nil)
-            let pdfRelativePath = "\(AppConstants.Directory.pdfs)/\(timestamp).pdf"
-            let thumbRelativePath = "\(AppConstants.Directory.scans)/\(timestamp)_thumb.jpg"
-            let pdfURL = FileHelper.shared.documentsDirectory.appendingPathComponent(pdfRelativePath)
-
-            guard PDFGenerator.shared.generatePDF(from: images, outputURL: pdfURL) else {
-                DispatchQueue.main.async { completion(false) }
-                return
-            }
-
-            if let firstImage = images.first {
-                let thumb = firstImage.resized(to: CGSize(width: 200, height: 200))
-                _ = FileHelper.shared.saveImage(thumb, name: "\(timestamp)_thumb.jpg",
-                                                directory: FileHelper.shared.scansDirectory,
-                                                quality: AppConstants.ImageCompression.lowQuality)
-            }
-
-            let success = WCDBManager.shared.updateDocumentContent(
-                id: id, filePath: pdfRelativePath,
-                thumbnailPath: thumbRelativePath, pageCount: images.count
-            )
-
-            if success {
-                FileHelper.shared.deleteFile(at: oldDoc.pdfURL)
-                FileHelper.shared.deleteFile(at: oldDoc.thumbnailURL)
-            } else {
-                FileHelper.shared.deleteFile(at: pdfURL)
-            }
-
-            DispatchQueue.main.async { [weak self] in
-                if success { self?.loadDocuments() }
-                completion(success)
+        service.updateDocumentContent(id: id, name: name, images: images) { [weak self] result in
+            switch result {
+            case .success:
+                self?.loadDocuments()
+                completion(true)
+            case .failure:
+                completion(false)
             }
         }
     }
 
-    /// Create a new document from scanned images:
-    /// 1. Save first image as thumbnail
-    /// 2. Generate PDF
-    /// 3. Insert DB record
     func createDocument(name: String, images: [UIImage], completion: @escaping (Bool) -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let timestamp = String.uniqueFileName(prefix: "doc", extension: nil)
-            let pdfRelativePath = "\(AppConstants.Directory.pdfs)/\(timestamp).pdf"
-            let thumbRelativePath = "\(AppConstants.Directory.scans)/\(timestamp)_thumb.jpg"
-
-            let pdfURL = FileHelper.shared.documentsDirectory.appendingPathComponent(pdfRelativePath)
-
-            // Generate PDF
-            let pdfSuccess = PDFGenerator.shared.generatePDF(from: images, outputURL: pdfURL)
-            guard pdfSuccess else {
-                DispatchQueue.main.async { completion(false) }
-                return
-            }
-
-            // Save thumbnail (first image, resized)
-            if let firstImage = images.first {
-                let thumb = firstImage.resized(to: CGSize(width: 200, height: 200))
-                _ = FileHelper.shared.saveImage(thumb, name: "\(timestamp)_thumb.jpg",
-                                                directory: FileHelper.shared.scansDirectory,
-                                                quality: AppConstants.ImageCompression.lowQuality)
-            }
-
-            // Insert record
-            let doc = DocumentModel()
-            doc.name = name
-            doc.createTime = Date()
-            doc.updateTime = Date()
-            doc.filePath = pdfRelativePath
-            doc.pageCount = images.count
-            doc.thumbnailPath = thumbRelativePath
-
-            let success = WCDBManager.shared.insertDocument(doc)
-
-            if !success {
-                // Rollback: clean up orphan files if DB insert failed
-                FileHelper.shared.deleteFile(at: pdfURL)
-                let thumbURL = FileHelper.shared.documentsDirectory.appendingPathComponent(thumbRelativePath)
-                FileHelper.shared.deleteFile(at: thumbURL)
-                Logger.shared.log("Rolled back orphan files after failed DB insert", level: .warning)
-            }
-
-            DispatchQueue.main.async { [weak self] in
-                if success {
-                    self?.loadDocuments()
-                }
-                completion(success)
+        service.createDocument(name: name, images: images) { [weak self] result in
+            switch result {
+            case .success:
+                self?.loadDocuments()
+                completion(true)
+            case .failure:
+                completion(false)
             }
         }
     }

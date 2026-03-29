@@ -41,6 +41,27 @@ extension UIImage {
         return jpegData(compressionQuality: quality)
     }
 
+    /// Downscales so the longest pixel side is at most `maxPixelLength` (reduces memory for multi-page scans).
+    func constrainedToMaxPixelLength(_ maxPixelLength: CGFloat) -> UIImage {
+        let pixelWidth = size.width * scale
+        let pixelHeight = size.height * scale
+        let longest = max(pixelWidth, pixelHeight)
+        guard longest > maxPixelLength else { return self }
+
+        let ratio = maxPixelLength / longest
+        let targetW = pixelWidth * ratio
+        let targetH = pixelHeight * ratio
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: targetW, height: targetH), format: format)
+        return renderer.image { _ in
+            draw(in: CGRect(origin: .zero, size: CGSize(width: targetW, height: targetH)))
+        }
+    }
+
     /// Fix image orientation to .up (important after camera capture).
     func fixOrientation() -> UIImage {
         guard imageOrientation != .up else { return self }
@@ -55,12 +76,16 @@ extension UIImage {
 
 extension String {
 
+    private static let timestampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd_HHmmss_SSS"
+        return f
+    }()
+
     /// Generate a unique filename with timestamp.
     /// Pass `nil` for `ext` to get a name without an extension.
     static func uniqueFileName(prefix: String = "scan", extension ext: String? = "jpg") -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd_HHmmss_SSS"
-        let timestamp = formatter.string(from: Date())
+        let timestamp = timestampFormatter.string(from: Date())
         if let ext, !ext.isEmpty {
             return "\(prefix)_\(timestamp).\(ext)"
         }
@@ -72,11 +97,16 @@ extension String {
 
 extension Date {
 
+    private static let zhCNFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        return f
+    }()
+
     func formatted(style: DateFormatter.Style = .medium) -> String {
-        let formatter = DateFormatter()
+        let formatter = Date.zhCNFormatter
         formatter.dateStyle = style
         formatter.timeStyle = .short
-        formatter.locale = Locale(identifier: "zh_CN")
         return formatter.string(from: self)
     }
 }
@@ -111,5 +141,24 @@ extension CGRect {
             width: width * size.width,
             height: height * size.height
         )
+    }
+}
+
+// MARK: - Array
+
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
+
+// MARK: - UIScrollView
+
+extension UIScrollView {
+
+    /// Current page index for a horizontally paging scroll view.
+    var currentHorizontalPage: Int {
+        guard bounds.width > 0 else { return 0 }
+        return Int(round(contentOffset.x / bounds.width))
     }
 }

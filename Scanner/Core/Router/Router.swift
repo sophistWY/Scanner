@@ -74,9 +74,16 @@ final class Router {
         push(scanVC)
     }
 
-    func openDocumentDetail(_ document: DocumentModel) {
+    func openDocumentDetail(_ document: DocumentModel, delegate: DocumentDetailDelegate? = nil) {
         let detailVC = DocumentDetailViewController(document: document)
+        detailVC.detailDelegate = delegate
         push(detailVC)
+    }
+
+    func openEdit(images: [UIImage], documentName: String, documentId: Int64? = nil, delegate: EditViewControllerDelegate) {
+        let editVC = EditViewController(images: images, documentName: documentName, documentId: documentId)
+        editVC.editDelegate = delegate
+        push(editVC)
     }
 
     func openWeb(url: String, title: String? = nil) {

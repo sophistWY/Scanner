@@ -9,12 +9,38 @@
 //
 
 import UIKit
+import PDFKit
 
 final class PDFGenerator {
 
     static let shared = PDFGenerator()
 
     private init() {}
+
+    // MARK: - Extract Images
+
+    func extractImages(from pdfURL: URL) -> [UIImage]? {
+        guard let pdfDoc = PDFDocument(url: pdfURL), pdfDoc.pageCount > 0 else {
+            Logger.shared.log("Cannot open PDF: \(pdfURL.lastPathComponent)", level: .error)
+            return nil
+        }
+
+        var images: [UIImage] = []
+        for i in 0..<pdfDoc.pageCount {
+            guard let page = pdfDoc.page(at: i) else { continue }
+            let box = page.bounds(for: .mediaBox)
+            let renderer = UIGraphicsImageRenderer(size: box.size)
+            let img = renderer.image { ctx in
+                UIColor.white.set()
+                ctx.fill(box)
+                ctx.cgContext.translateBy(x: 0, y: box.height)
+                ctx.cgContext.scaleBy(x: 1, y: -1)
+                page.draw(with: .mediaBox, to: ctx.cgContext)
+            }
+            images.append(img)
+        }
+        return images.isEmpty ? nil : images
+    }
 
     /// Generate a PDF from an array of images and save to the specified URL.
     ///

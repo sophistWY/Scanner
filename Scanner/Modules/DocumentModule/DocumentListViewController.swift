@@ -4,7 +4,6 @@
 //
 
 import UIKit
-import PDFKit
 import SnapKit
 
 final class DocumentListViewController: BaseViewController {
@@ -141,43 +140,18 @@ final class DocumentListViewController: BaseViewController {
     private func startScan(_ type: ScanType) {
         PermissionHelper.shared.requestCameraPermission(from: self) { [weak self] granted in
             guard granted, let self else { return }
-            let scanVC = ScanViewController(scanType: type)
-            scanVC.scanDelegate = self
-            self.navigationController?.pushViewController(scanVC, animated: true)
+            Router.shared.openScan(type: type, delegate: self)
         }
     }
 
     // MARK: - Open Document
 
     private func openDocument(_ doc: DocumentModel) {
-        guard let pdfDoc = PDFDocument(url: doc.pdfURL), pdfDoc.pageCount > 0 else {
+        guard let images = PDFGenerator.shared.extractImages(from: doc.pdfURL) else {
             showAlert(title: "错误", message: "无法打开文档")
             return
         }
-
-        var images: [UIImage] = []
-        for i in 0..<pdfDoc.pageCount {
-            guard let page = pdfDoc.page(at: i) else { continue }
-            let box = page.bounds(for: .mediaBox)
-            let renderer = UIGraphicsImageRenderer(size: box.size)
-            let img = renderer.image { ctx in
-                UIColor.white.set()
-                ctx.fill(box)
-                ctx.cgContext.translateBy(x: 0, y: box.height)
-                ctx.cgContext.scaleBy(x: 1, y: -1)
-                page.draw(with: .mediaBox, to: ctx.cgContext)
-            }
-            images.append(img)
-        }
-
-        guard !images.isEmpty else {
-            showAlert(title: "错误", message: "文档内容为空")
-            return
-        }
-
-        let editVC = EditViewController(images: images, documentName: doc.name, documentId: doc.id)
-        editVC.editDelegate = self
-        navigationController?.pushViewController(editVC, animated: true)
+        Router.shared.openEdit(images: images, documentName: doc.name, documentId: doc.id, delegate: self)
     }
 }
 
@@ -250,9 +224,7 @@ extension DocumentListViewController: ScanViewControllerDelegate {
         pendingScanImages = nil
 
         let name = "扫描文档_\(Date().formatted(style: .short))"
-        let editVC = EditViewController(images: images, documentName: name)
-        editVC.editDelegate = self
-        navigationController?.pushViewController(editVC, animated: true)
+        Router.shared.openEdit(images: images, documentName: name, delegate: self)
     }
 
     func scanViewControllerDidCancel(_ vc: ScanViewController) {}
