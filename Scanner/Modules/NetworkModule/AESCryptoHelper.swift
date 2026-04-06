@@ -35,7 +35,7 @@ final class AESCryptoHelper {
         return [
             "userid": userid,
             "appid": kBundleID,
-            "network": kNetworkStatus,
+            "network": NetworkStatusMonitor.shared.statusCode,
             "version": appVersion,
             "osversion": UIDevice.current.systemVersion
         ]

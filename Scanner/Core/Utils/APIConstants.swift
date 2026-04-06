@@ -57,7 +57,8 @@ public let kKeychainUserIDKey = "com.xiangying.scanner.userid"
 
 // MARK: - Network
 
-public let kNetworkStatus: Int = 0
+public let kNetworkStatusUnknown: Int = 0
+public let kNetworkStatusReachable: Int = 1
 
 // MARK: - Image Upload
 

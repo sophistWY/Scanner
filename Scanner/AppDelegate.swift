@@ -14,6 +14,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     ) -> Bool {
         setupAppearance()
         FileHelper.shared.ensureDirectoriesExist()
+        NetworkStatusMonitor.shared.start()
         return true
     }
 

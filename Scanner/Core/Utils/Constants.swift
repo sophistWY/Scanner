@@ -4,6 +4,7 @@
 //
 
 import UIKit
+import Network
 
 enum AppConstants {
 
@@ -48,5 +49,42 @@ enum AppConstants {
         static let maxPixelLength: CGFloat = 2048
         static let thumbnailMaxPixelLength: CGFloat = 256
         static let originalJPEGQuality: CGFloat = 0.88
+    }
+}
+
+final class NetworkStatusMonitor {
+
+    static let shared = NetworkStatusMonitor()
+
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "com.scanner.network.monitor")
+    private var hasStarted = false
+
+    private(set) var isReachable: Bool = true
+
+    /// Matches backend contract: 0 unknown/offline, 1 reachable.
+    var statusCode: Int {
+        isReachable ? kNetworkStatusReachable : kNetworkStatusUnknown
+    }
+
+    private init() {}
+
+    func start() {
+        guard !hasStarted else { return }
+        hasStarted = true
+
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            self.isReachable = (path.status == .satisfied)
+            Logger.shared.log(
+                "Network reachable: \(self.isReachable)",
+                level: .debug
+            )
+        }
+        monitor.start(queue: queue)
+    }
+
+    deinit {
+        monitor.cancel()
     }
 }

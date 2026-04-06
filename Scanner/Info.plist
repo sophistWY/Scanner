@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>需要使用相机来扫描和拍摄文档。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>需要访问相册以导入文档图片。</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>需要保存导出的图片或文件到相册。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

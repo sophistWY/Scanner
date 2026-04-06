@@ -257,6 +257,11 @@ final class NetworkManager {
         _ target: ScannerAPI,
         completion: @escaping (Result<T, Error>) -> Void
     ) {
+        if !NetworkStatusMonitor.shared.isReachable {
+            completion(.failure(NetworkError.networkUnavailable))
+            return
+        }
+
         provider.request(target) { result in
             switch result {
             case .success(let response):
