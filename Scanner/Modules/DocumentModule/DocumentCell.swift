@@ -10,12 +10,19 @@ final class DocumentCell: UITableViewCell {
 
     // MARK: - UI
 
-    private let thumbnailImageView: UIImageView = {
+    private let cardView: UIView = {
+        let v = UIView()
+        v.backgroundColor = .white
+        v.layer.cornerRadius = 14
+        v.layer.borderWidth = 1
+        v.layer.borderColor = UIColor(hex: 0xECECF3).cgColor
+        return v
+    }()
+
+    private let pdfImageView: UIImageView = {
         let iv = UIImageView()
-        iv.contentMode = .scaleAspectFill
-        iv.clipsToBounds = true
-        iv.layer.cornerRadius = 6
-        iv.backgroundColor = .secondarySystemFill
+        iv.image = UIImage(named: "pdf_icon")
+        iv.contentMode = .scaleAspectFit
         return iv
     }()
 
@@ -56,26 +63,33 @@ final class DocumentCell: UITableViewCell {
     // MARK: - Setup
 
     private func setupViews() {
-        accessoryType = .disclosureIndicator
+        backgroundColor = .clear
+        selectionStyle = .none
+        contentView.backgroundColor = .clear
 
-        contentView.addSubview(thumbnailImageView)
-        contentView.addSubview(nameLabel)
-        contentView.addSubview(detailLabel)
-        contentView.addSubview(pageCountLabel)
+        contentView.addSubview(cardView)
+        cardView.addSubview(pdfImageView)
+        cardView.addSubview(nameLabel)
+        cardView.addSubview(detailLabel)
+        cardView.addSubview(pageCountLabel)
 
         let padding = AppConstants.UI.padding
 
-        thumbnailImageView.snp.makeConstraints { make in
-            make.leading.equalToSuperview().offset(padding)
+        cardView.snp.makeConstraints { make in
+            make.top.bottom.equalToSuperview().inset(8)
+            make.leading.trailing.equalToSuperview().inset(16)
+        }
+
+        pdfImageView.snp.makeConstraints { make in
+            make.trailing.equalToSuperview().offset(-20)
             make.centerY.equalToSuperview()
-            make.width.equalTo(52)
-            make.height.equalTo(52)
+            make.width.height.equalTo(42)
         }
 
         nameLabel.snp.makeConstraints { make in
-            make.leading.equalTo(thumbnailImageView.snp.trailing).offset(12)
-            make.trailing.lessThanOrEqualTo(pageCountLabel.snp.leading).offset(-8)
-            make.top.equalToSuperview().offset(14)
+            make.leading.equalToSuperview().offset(padding)
+            make.trailing.lessThanOrEqualTo(pdfImageView.snp.leading).offset(-12)
+            make.top.equalToSuperview().offset(16)
         }
 
         detailLabel.snp.makeConstraints { make in
@@ -85,8 +99,8 @@ final class DocumentCell: UITableViewCell {
         }
 
         pageCountLabel.snp.makeConstraints { make in
-            make.trailing.equalToSuperview().offset(-8)
-            make.centerY.equalToSuperview()
+            make.leading.equalTo(nameLabel)
+            make.top.equalTo(detailLabel.snp.bottom).offset(2)
         }
     }
 
@@ -96,20 +110,10 @@ final class DocumentCell: UITableViewCell {
         nameLabel.text = document.name
         detailLabel.text = document.formattedCreateTime
         pageCountLabel.text = "\(document.pageCount)页"
-
-        let thumbURL = document.thumbnailURL
-        if FileHelper.shared.fileExists(at: thumbURL) {
-            thumbnailImageView.image = UIImage(contentsOfFile: thumbURL.path)
-        } else {
-            thumbnailImageView.image = UIImage(systemName: "doc.fill")
-            thumbnailImageView.tintColor = .systemGray3
-            thumbnailImageView.contentMode = .scaleAspectFit
-        }
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        thumbnailImageView.image = nil
-        thumbnailImageView.contentMode = .scaleAspectFill
+        pdfImageView.image = UIImage(named: "pdf_icon")
     }
 }

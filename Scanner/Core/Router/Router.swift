@@ -11,6 +11,7 @@ final class Router {
     static let shared = Router()
 
     private(set) var window: UIWindow?
+    private(set) var tabBarController: MainTabBarController?
     private(set) var navigationController: BaseNavigationController?
 
     private init() {}
@@ -19,10 +20,10 @@ final class Router {
 
     func setupWindow(_ window: UIWindow) {
         self.window = window
-        let rootVC = DocumentListViewController()
-        let nav = BaseNavigationController(rootViewController: rootVC)
-        self.navigationController = nav
-        window.rootViewController = nav
+        let tabBar = MainTabBarController()
+        self.tabBarController = tabBar
+        self.navigationController = tabBar.currentNavigationController
+        window.rootViewController = tabBar
         window.makeKeyAndVisible()
         Logger.shared.log("Window setup complete", level: .info)
     }
@@ -30,23 +31,24 @@ final class Router {
     // MARK: - Push / Pop
 
     func push(_ viewController: UIViewController, animated: Bool = true) {
-        navigationController?.pushViewController(viewController, animated: animated)
+        currentNavigationController?.pushViewController(viewController, animated: animated)
     }
 
     @discardableResult
     func pop(animated: Bool = true) -> UIViewController? {
-        return navigationController?.popViewController(animated: animated)
+        return currentNavigationController?.popViewController(animated: animated)
     }
 
     func popToRoot(animated: Bool = true) {
-        navigationController?.popToRootViewController(animated: animated)
+        currentNavigationController?.popToRootViewController(animated: animated)
     }
 
     func popTo<T: UIViewController>(_ type: T.Type, animated: Bool = true) -> Bool {
-        guard let target = navigationController?.viewControllers.last(where: { $0 is T }) else {
+        guard let nav = currentNavigationController,
+              let target = nav.viewControllers.last(where: { $0 is T }) else {
             return false
         }
-        navigationController?.popToViewController(target, animated: animated)
+        nav.popToViewController(target, animated: animated)
         return true
     }
 
@@ -95,5 +97,13 @@ final class Router {
 
     var topViewController: UIViewController? {
         return window?.rootViewController?.topMostViewController
+    }
+
+    private var currentNavigationController: BaseNavigationController? {
+        if let selected = tabBarController?.currentNavigationController {
+            navigationController = selected
+            return selected
+        }
+        return navigationController
     }
 }

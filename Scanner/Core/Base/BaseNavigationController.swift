@@ -27,6 +27,14 @@ final class BaseNavigationController: UINavigationController {
         interactivePopGestureRecognizer?.delegate = self
     }
 
+    /// When embedded in a tab bar, hide the tab bar for all pushed screens (root keeps it visible).
+    override func pushViewController(_ viewController: UIViewController, animated: Bool) {
+        if !viewControllers.isEmpty {
+            viewController.hidesBottomBarWhenPushed = true
+        }
+        super.pushViewController(viewController, animated: animated)
+    }
+
     override var childForStatusBarStyle: UIViewController? {
         return topViewController
     }

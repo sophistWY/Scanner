@@ -9,7 +9,6 @@ import SnapKit
 final class DocumentListViewController: BaseViewController {
 
     private let viewModel = DocumentListViewModel()
-    private var pendingScanImages: [UIImage]?
 
     // MARK: - UI
 
@@ -18,11 +17,34 @@ final class DocumentListViewController: BaseViewController {
         tv.delegate = self
         tv.dataSource = self
         tv.register(cellType: DocumentCell.self)
-        tv.separatorStyle = .singleLine
-        tv.separatorInset = UIEdgeInsets(top: 0, left: 80, bottom: 0, right: 0)
-        tv.backgroundColor = .systemBackground
-        tv.rowHeight = AppConstants.UI.cellHeight
+        tv.separatorStyle = .none
+        tv.backgroundColor = .clear
+        tv.rowHeight = 96
+        tv.showsVerticalScrollIndicator = false
         return tv
+    }()
+
+    override var prefersNavigationBarHidden: Bool { true }
+
+    private let headerView: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor(hex: 0x3569F6)
+        return v
+    }()
+
+    private let noticeBar: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor(hex: 0xF7E4C8)
+        return v
+    }()
+
+    private let noticeLabel: UILabel = {
+        let label = UILabel()
+        label.text = "仅显示会员期的文档，过期删除，请尽快下载保存！"
+        label.textColor = UIColor(hex: 0x5E4A31)
+        label.font = .systemFont(ofSize: 13)
+        label.textAlignment = .center
+        return label
     }()
 
     private lazy var emptyStateView: UIView = {
@@ -35,7 +57,7 @@ final class DocumentListViewController: BaseViewController {
         container.addSubview(imageView)
 
         let label = UILabel()
-        label.text = "暂无文档\n点击右上角 + 开始扫描"
+        label.text = "暂无文档\n请到首页开始扫描"
         label.textAlignment = .center
         label.numberOfLines = 0
         label.textColor = .secondaryLabel
@@ -62,37 +84,37 @@ final class DocumentListViewController: BaseViewController {
         viewModel.loadDocuments()
     }
 
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        handlePendingScanImages()
-    }
-
     // MARK: - Setup
 
     override func setupUI() {
-        title = "我的文档"
-        navigationController?.navigationBar.prefersLargeTitles = true
+        view.backgroundColor = UIColor(hex: 0xF6F6F8)
 
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .add,
-            target: self,
-            action: #selector(addButtonTapped)
-        )
-
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "arrow.up.arrow.down"),
-            style: .plain,
-            target: self,
-            action: #selector(sortButtonTapped)
-        )
-
+        view.addSubview(headerView)
+        view.addSubview(noticeBar)
+        noticeBar.addSubview(noticeLabel)
         view.addSubview(tableView)
         view.addSubview(emptyStateView)
     }
 
     override func setupConstraints() {
+        headerView.snp.makeConstraints { make in
+            make.top.leading.trailing.equalToSuperview()
+            make.height.equalTo(150)
+        }
+
+        noticeBar.snp.makeConstraints { make in
+            make.top.equalTo(view.safeAreaLayoutGuide).offset(92)
+            make.leading.trailing.equalToSuperview()
+            make.height.equalTo(32)
+        }
+
+        noticeLabel.snp.makeConstraints { make in
+            make.edges.equalToSuperview().inset(UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12))
+        }
+
         tableView.snp.makeConstraints { make in
-            make.edges.equalToSuperview()
+            make.top.equalTo(noticeBar.snp.bottom).offset(8)
+            make.leading.trailing.bottom.equalToSuperview()
         }
 
         emptyStateView.snp.makeConstraints { make in
@@ -110,37 +132,6 @@ final class DocumentListViewController: BaseViewController {
 
         viewModel.documents.bindNoFire { [weak self] _ in
             self?.tableView.reloadData()
-        }
-    }
-
-    // MARK: - Actions
-
-    @objc private func addButtonTapped() {
-        showActionSheet(
-            title: "选择扫描类型",
-            actions: [
-                ("文档扫描", .default, { [weak self] in self?.startScan(.document) }),
-                ("银行卡拍照", .default, { [weak self] in self?.startScan(.bankCard) }),
-                ("营业执照拍照", .default, { [weak self] in self?.startScan(.businessLicense) })
-            ]
-        )
-    }
-
-    @objc private func sortButtonTapped() {
-        showActionSheet(
-            title: "排序方式",
-            actions: [
-                ("最新创建", .default, { [weak self] in self?.viewModel.setSortOrder(.dateDescending) }),
-                ("最早创建", .default, { [weak self] in self?.viewModel.setSortOrder(.dateAscending) }),
-                ("按名称", .default, { [weak self] in self?.viewModel.setSortOrder(.nameAscending) })
-            ]
-        )
-    }
-
-    private func startScan(_ type: ScanType) {
-        PermissionHelper.shared.requestCameraPermission(from: self) { [weak self] granted in
-            guard granted, let self else { return }
-            Router.shared.openScan(type: type, delegate: self)
         }
     }
 
@@ -210,27 +201,6 @@ extension DocumentListViewController: UITableViewDataSource, UITableViewDelegate
         return UISwipeActionsConfiguration(actions: [deleteAction, renameAction])
     }
 }
-
-// MARK: - ScanViewControllerDelegate
-
-extension DocumentListViewController: ScanViewControllerDelegate {
-
-    func scanViewController(_ vc: ScanViewController, didFinishWith images: [UIImage]) {
-        pendingScanImages = images
-    }
-
-    private func handlePendingScanImages() {
-        guard let images = pendingScanImages else { return }
-        pendingScanImages = nil
-
-        let name = "扫描文档_\(Date().formatted(style: .short))"
-        Router.shared.openEdit(images: images, documentName: name, delegate: self)
-    }
-
-    func scanViewControllerDidCancel(_ vc: ScanViewController) {}
-}
-
-// MARK: - EditViewControllerDelegate
 
 extension DocumentListViewController: EditViewControllerDelegate {
 
