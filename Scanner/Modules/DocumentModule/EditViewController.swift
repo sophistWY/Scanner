@@ -7,7 +7,7 @@
 //    • Horizontal paging through all captured images
 //    • Bottom filter bar per-page (original / grayscale / B&W / enhanced / …)
 //    • Crop (interactive quadrilateral adjustment)
-//    • Nav bar: 完成 (save + exit), 分享PDF (share as PDF)
+//    • Primary export action for saving as PDF
 //
 
 import UIKit
@@ -43,6 +43,8 @@ final class EditViewController: BaseViewController {
 
     /// Tracks which filter is applied to each page (0 = original).
     private var appliedFilterIndex: [Int]
+    private var hasExportedSuccessfully = false
+    private var isExporting = false
 
     // MARK: - UI
 
@@ -96,6 +98,17 @@ final class EditViewController: BaseViewController {
         return v
     }()
 
+    private lazy var exportButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("立即导出", for: .normal)
+        button.setTitleColor(.white, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 18, weight: .semibold)
+        button.backgroundColor = UIColor(hex: 0x2E66FF)
+        button.layer.cornerRadius = 12
+        button.addTarget(self, action: #selector(exportTapped), for: .touchUpInside)
+        return button
+    }()
+
     // MARK: - Init
 
     init(images: [UIImage], documentName: String, documentId: Int64? = nil) {
@@ -134,6 +147,10 @@ final class EditViewController: BaseViewController {
             title: "分享PDF", style: .plain,
             target: self, action: #selector(shareTapped)
         )
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            title: "返回", style: .plain,
+            target: self, action: #selector(backTapped)
+        )
 
         view.addSubview(collectionView)
         view.addSubview(bottomContainer)
@@ -141,6 +158,7 @@ final class EditViewController: BaseViewController {
         bottomContainer.addSubview(filterScrollView)
         filterScrollView.addSubview(filterStack)
         bottomContainer.addSubview(toolBar)
+        bottomContainer.addSubview(exportButton)
 
         setupFilterButtons()
         setupToolButtons()
@@ -182,7 +200,13 @@ final class EditViewController: BaseViewController {
             make.top.equalTo(filterScrollView.snp.bottom).offset(4)
             make.leading.trailing.equalToSuperview()
             make.height.equalTo(50)
-            make.bottom.equalTo(view.safeAreaLayoutGuide.snp.bottom).offset(-4)
+        }
+
+        exportButton.snp.makeConstraints { make in
+            make.top.equalTo(toolBar.snp.bottom).offset(8)
+            make.leading.trailing.equalToSuperview().inset(18)
+            make.height.equalTo(52)
+            make.bottom.equalTo(view.safeAreaLayoutGuide.snp.bottom).offset(-8)
         }
     }
 
@@ -313,25 +337,36 @@ final class EditViewController: BaseViewController {
 
     // MARK: - Lifecycle
 
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        if isMovingFromParent {
-            editDelegate?.editViewController(self, didFinishWith: images)
+    // MARK: - Actions
+
+    @objc private func backTapped() {
+        guard !isExporting else { return }
+        if hasExportedSuccessfully {
+            navigationController?.popViewController(animated: true)
+            return
+        }
+        showConfirmAlert(
+            title: "未导出内容将丢失",
+            message: "确认返回吗？",
+            confirmTitle: "返回",
+            confirmStyle: .destructive
+        ) { [weak self] in
+            guard let self else { return }
+            self.editDelegate?.editViewControllerDidCancel(self)
+            self.navigationController?.popViewController(animated: true)
         }
     }
 
-    // MARK: - Actions
-
     @objc private func shareTapped() {
-        HUD.shared.showLoading(message: "生成PDF...")
+        showLoading(message: "生成PDF...")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let tmpURL = FileHelper.shared.tempDirectory.appendingPathComponent("share_\(UUID().uuidString).pdf")
             let ok = PDFGenerator.shared.generatePDF(from: self.images, outputURL: tmpURL)
             DispatchQueue.main.async {
-                HUD.shared.hideLoading()
+                self.hideLoading()
                 guard ok else {
-                    HUD.shared.showError("生成失败")
+                    self.showError("生成失败")
                     return
                 }
                 let activityVC = UIActivityViewController(activityItems: [tmpURL], applicationActivities: nil)
@@ -369,7 +404,7 @@ final class EditViewController: BaseViewController {
         appliedFilterIndex[currentPage] = 0
         collectionView.reloadItems(at: [IndexPath(item: currentPage, section: 0)])
         updateFilterSelection()
-        HUD.shared.showSuccess("已恢复原图")
+        showSuccess("已恢复原图")
     }
 
     @objc private func deleteTapped() {
@@ -410,7 +445,7 @@ final class EditViewController: BaseViewController {
 
         guard let original = UIImage(data: originalJPEGs[currentPage]) else { return }
 
-        HUD.shared.showLoading(message: "处理中…")
+        showLoading(message: "处理中…")
         let filterType = filters[idx]
         let page = currentPage
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -418,11 +453,57 @@ final class EditViewController: BaseViewController {
                 ImageFilterManager.shared.apply(filterType, to: original)
             }
             DispatchQueue.main.async {
-                HUD.shared.hideLoading()
+                self?.hideLoading()
                 guard let self, page == self.currentPage else { return }
                 self.images[page] = result
                 self.collectionView.reloadItems(at: [IndexPath(item: page, section: 0)])
                 self.updateFilterSelection()
+            }
+        }
+    }
+
+    @objc private func exportTapped() {
+        guard !isExporting else { return }
+        isExporting = true
+        exportButton.isEnabled = false
+        exportButton.alpha = 0.7
+        showLoading(message: "导出中...")
+
+        if let id = documentId {
+            DocumentService.shared.updateDocumentContent(id: id, name: documentName, images: images) { [weak self] result in
+                guard let self else { return }
+                self.isExporting = false
+                self.exportButton.isEnabled = true
+                self.exportButton.alpha = 1
+                self.hideLoading()
+                switch result {
+                case .success:
+                    self.hasExportedSuccessfully = true
+                    self.showSuccess("导出成功")
+                    self.editDelegate?.editViewController(self, didFinishWith: self.images)
+                    self.navigationController?.popViewController(animated: true)
+                case .failure(let error):
+                    self.showError(error.errorDescription ?? "导出失败")
+                }
+            }
+            return
+        }
+
+        DocumentService.shared.createDocument(name: documentName, images: images) { [weak self] result in
+            guard let self else { return }
+            self.isExporting = false
+            self.exportButton.isEnabled = true
+            self.exportButton.alpha = 1
+            self.hideLoading()
+            switch result {
+            case .success(let created):
+                self.hasExportedSuccessfully = true
+                self.documentId = created.document.id
+                self.showSuccess("导出成功")
+                self.editDelegate?.editViewController(self, didFinishWith: self.images)
+                self.navigationController?.popViewController(animated: true)
+            case .failure(let error):
+                self.showError(error.errorDescription ?? "导出失败")
             }
         }
     }

@@ -153,7 +153,7 @@ extension HomeViewController: ScanViewControllerDelegate {
 
 extension HomeViewController: EditViewControllerDelegate {
     func editViewController(_ vc: EditViewController, didFinishWith images: [UIImage]) {
-        DocumentService.shared.createDocument(name: vc.documentName, images: images) { _ in }
+        Router.shared.tabBarController?.selectedIndex = 1
     }
 
     func editViewControllerDidCancel(_ vc: EditViewController) {}

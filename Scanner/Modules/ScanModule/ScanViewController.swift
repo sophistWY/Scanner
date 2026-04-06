@@ -42,21 +42,21 @@ final class ScanViewController: BaseViewController {
         return v
     }()
 
+    private lazy var backButton: UIButton = {
+        let btn = UIButton(type: .system)
+        let config = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
+        btn.setImage(UIImage(systemName: "chevron.left", withConfiguration: config), for: .normal)
+        btn.tintColor = .white
+        btn.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        return btn
+    }()
+
     private lazy var shutterButton: UIButton = {
         let btn = UIButton(type: .custom)
         let config = UIImage.SymbolConfiguration(pointSize: 60, weight: .ultraLight)
         btn.setImage(UIImage(systemName: "circle.inset.filled", withConfiguration: config), for: .normal)
         btn.tintColor = .white
         btn.addTarget(self, action: #selector(shutterTapped), for: .touchUpInside)
-        return btn
-    }()
-
-    private lazy var cancelButton: UIButton = {
-        let btn = UIButton(type: .system)
-        btn.setTitle("取消", for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 17)
-        btn.tintColor = .white
-        btn.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
         return btn
     }()
 
@@ -80,9 +80,15 @@ final class ScanViewController: BaseViewController {
 
     private lazy var galleryButton: UIButton = {
         let btn = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 20)
-        btn.setImage(UIImage(systemName: "photo.on.rectangle", withConfiguration: config), for: .normal)
-        btn.tintColor = .white
+        var config = UIButton.Configuration.plain()
+        config.image = UIImage(named: "icon_photo_library") ?? UIImage(systemName: "photo.on.rectangle")
+        config.title = "相册导入"
+        config.imagePlacement = .top
+        config.imagePadding = 4
+        config.baseForegroundColor = .white
+        config.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4)
+        btn.configuration = config
+        btn.titleLabel?.font = .systemFont(ofSize: 12)
         btn.addTarget(self, action: #selector(galleryTapped), for: .touchUpInside)
         return btn
     }()
@@ -118,6 +124,15 @@ final class ScanViewController: BaseViewController {
         label.layer.cornerRadius = 10
         label.clipsToBounds = true
         label.isHidden = true
+        return label
+    }()
+
+    private lazy var scanHintLabel: UILabel = {
+        let label = UILabel()
+        label.text = "正对文件 贴近边角"
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 16, weight: .medium)
+        label.textAlignment = .center
         return label
     }()
 
@@ -168,11 +183,12 @@ final class ScanViewController: BaseViewController {
         previewContainerView.addSubview(overlayView)
 
         view.addSubview(statusLabel)
+        view.addSubview(backButton)
         view.addSubview(torchButton)
-        view.addSubview(galleryButton)
+        view.addSubview(scanHintLabel)
 
         view.addSubview(bottomBar)
-        bottomBar.addSubview(cancelButton)
+        bottomBar.addSubview(galleryButton)
         bottomBar.addSubview(shutterButton)
         bottomBar.addSubview(doneButton)
         bottomBar.addSubview(thumbnailButton)
@@ -203,16 +219,21 @@ final class ScanViewController: BaseViewController {
             make.width.greaterThanOrEqualTo(120)
         }
 
+        backButton.snp.makeConstraints { make in
+            make.leading.equalToSuperview().offset(16)
+            make.centerY.equalTo(statusLabel)
+            make.width.height.equalTo(44)
+        }
+
         torchButton.snp.makeConstraints { make in
             make.trailing.equalToSuperview().offset(-20)
             make.centerY.equalTo(statusLabel)
             make.width.height.equalTo(44)
         }
 
-        galleryButton.snp.makeConstraints { make in
-            make.leading.equalToSuperview().offset(20)
-            make.centerY.equalTo(statusLabel)
-            make.width.height.equalTo(44)
+        scanHintLabel.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.bottom.equalTo(bottomBar.snp.top).offset(-20)
         }
 
         bottomBar.snp.makeConstraints { make in
@@ -226,9 +247,11 @@ final class ScanViewController: BaseViewController {
             make.width.height.equalTo(72)
         }
 
-        cancelButton.snp.makeConstraints { make in
-            make.leading.equalToSuperview().offset(30)
+        galleryButton.snp.makeConstraints { make in
+            make.leading.equalToSuperview().offset(24)
             make.centerY.equalTo(shutterButton)
+            make.width.equalTo(72)
+            make.height.equalTo(54)
         }
 
         doneButton.snp.makeConstraints { make in
@@ -422,7 +445,7 @@ extension ScanViewController: CameraManagerDelegate {
     }
 
     func cameraManager(_ manager: CameraManager, didCapturePhoto image: UIImage) {
-        HUD.shared.showLoading(message: "处理中…")
+        showLoading(message: "处理中…")
 
         if viewModel.scanType.needsRectangleDetection {
             rectangleDetector.detectInImage(image) { [weak self] rect in
@@ -435,25 +458,25 @@ extension ScanViewController: CameraManagerDelegate {
                         DispatchQueue.main.async {
                             self.viewModel.addCapturedImage(toAdd)
                             self.viewModel.canCapture.value = true
-                            HUD.shared.hideLoading()
+                            self.hideLoading()
                         }
                     }
                 } else {
                     viewModel.addCapturedImage(image)
                     viewModel.canCapture.value = true
-                    HUD.shared.hideLoading()
+                    hideLoading()
                 }
             }
         } else {
             viewModel.addCapturedImage(image)
             viewModel.canCapture.value = true
-            HUD.shared.hideLoading()
+            hideLoading()
         }
     }
 
     func cameraManager(_ manager: CameraManager, didFailCapture error: Error?) {
         viewModel.canCapture.value = true
-        HUD.shared.showError("拍照失败，请重试")
+        showError("拍照失败，请重试")
     }
 
     func cameraManager(_ manager: CameraManager, didEncounterError error: CameraManagerError) {
@@ -480,7 +503,7 @@ extension ScanViewController: PHPickerViewControllerDelegate {
         picker.dismiss(animated: true)
         guard !results.isEmpty else { return }
 
-        HUD.shared.showLoading(message: "导入中...")
+        showLoading(message: "导入中...")
         let group = DispatchGroup()
         var importedImages: [UIImage] = []
         let lock = NSLock()
@@ -499,14 +522,14 @@ extension ScanViewController: PHPickerViewControllerDelegate {
         }
 
         group.notify(queue: .main) { [weak self] in
-            HUD.shared.hideLoading()
+            self?.hideLoading()
             for image in importedImages {
                 autoreleasepool {
                     self?.viewModel.addCapturedImage(image.fixOrientation())
                 }
             }
             if !importedImages.isEmpty {
-                HUD.shared.showSuccess("已导入 \(importedImages.count) 张")
+                self?.showSuccess("已导入 \(importedImages.count) 张")
             }
         }
     }
