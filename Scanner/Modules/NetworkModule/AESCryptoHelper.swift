@@ -63,7 +63,7 @@ final class AESCryptoHelper {
     func encrypt(_ plainText: String) -> String? {
         do {
             let key = Array(kAESKey.utf8)
-            let iv = Array(kAESIV.utf8)
+            let iv = Array(key.prefix(16))
             let aes = try AES(key: key, blockMode: CFB(iv: iv), padding: .noPadding)
             let encrypted = try aes.encrypt(Array(plainText.utf8))
             let base64 = Data(encrypted).base64EncodedString()
@@ -81,7 +81,7 @@ final class AESCryptoHelper {
             let base64 = base64URLToBase64(base64URLString)
             guard let data = Data(base64Encoded: base64) else { return nil }
             let key = Array(kAESKey.utf8)
-            let iv = Array(kAESIV.utf8)
+            let iv = Array(key.prefix(16))
             let aes = try AES(key: key, blockMode: CFB(iv: iv), padding: .noPadding)
             let decrypted = try aes.decrypt(Array(data))
             guard let jsonString = String(bytes: decrypted, encoding: .utf8),

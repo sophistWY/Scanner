@@ -21,8 +21,8 @@ public let kPathLanguage = "common/lan"
 
 // MARK: - AES Encryption
 
+/// 32-byte key for AES-256-CFB. IV is always the first 16 bytes of this key (see API doc).
 public let kAESKey = "1qaz2ws&*&*&*(()_+++_)*(OL?>:>LK"
-public let kAESIV = "1qaz2ws&*&*&*(("
 
 // MARK: - Apple IAP
 

@@ -120,6 +120,16 @@ final class ScanViewController: BaseViewController {
         return btn
     }()
 
+    private lazy var thumbnailLoadingIndicator: UIActivityIndicatorView = {
+        let v = UIActivityIndicatorView(style: .medium)
+        v.hidesWhenStopped = true
+        v.color = .white
+        return v
+    }()
+
+    /// Prevents out-of-order async thumbnails when captures complete quickly.
+    private var thumbnailThumbGeneration: Int = 0
+
     private lazy var countBadge: UILabel = {
         let label = UILabel()
         label.textColor = .white
@@ -211,6 +221,7 @@ final class ScanViewController: BaseViewController {
         bottomBar.addSubview(doneButton)
         bottomBar.addSubview(thumbnailButton)
         bottomBar.addSubview(countBadge)
+        thumbnailButton.addSubview(thumbnailLoadingIndicator)
 
         cameraManager.delegate = self
         rectangleDetector.delegate = self
@@ -301,6 +312,10 @@ final class ScanViewController: BaseViewController {
             make.width.height.equalTo(48)
         }
 
+        thumbnailLoadingIndicator.snp.makeConstraints { make in
+            make.center.equalToSuperview()
+        }
+
         countBadge.snp.makeConstraints { make in
             make.top.equalTo(thumbnailButton).offset(-4)
             make.trailing.equalTo(thumbnailButton).offset(4)
@@ -327,17 +342,35 @@ final class ScanViewController: BaseViewController {
         }
 
         viewModel.capturedImages.bind { [weak self] images in
+            guard let self else { return }
             let count = images.count
-            self?.doneButton.isHidden = count == 0
-            self?.thumbnailButton.isHidden = count == 0
-            self?.countBadge.isHidden = count == 0
+            doneButton.isHidden = count == 0
+            thumbnailButton.isHidden = count == 0
+            countBadge.isHidden = count == 0
 
-            if let lastImage = images.last {
-                let thumb = lastImage.constrainedToMaxPixelLength(AppConstants.ScanImage.thumbnailMaxPixelLength)
-                self?.thumbnailButton.setImage(thumb, for: .normal)
-                self?.thumbnailButton.imageView?.contentMode = .scaleAspectFill
+            if count == 0 {
+                thumbnailLoadingIndicator.stopAnimating()
+                thumbnailButton.setImage(nil, for: .normal)
+            } else if let lastImage = images.last {
+                thumbnailThumbGeneration += 1
+                let gen = thumbnailThumbGeneration
+                thumbnailLoadingIndicator.startAnimating()
+                thumbnailButton.setImage(nil, for: .normal)
+
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let thumb = autoreleasepool {
+                        lastImage.constrainedToMaxPixelLength(AppConstants.ScanImage.thumbnailMaxPixelLength)
+                    }
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        guard gen == self.thumbnailThumbGeneration else { return }
+                        self.thumbnailButton.setImage(thumb, for: .normal)
+                        self.thumbnailButton.imageView?.contentMode = .scaleAspectFill
+                        self.thumbnailLoadingIndicator.stopAnimating()
+                    }
+                }
             }
-            self?.countBadge.text = "\(count)"
+            countBadge.text = "\(count)"
         }
 
         viewModel.detectedRectangle.bindNoFire { [weak self] rect in

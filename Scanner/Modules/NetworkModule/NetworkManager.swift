@@ -40,6 +40,17 @@ struct STSImageInfo: Decodable {
     let imagepath: String
     let carduid: String
     let ext: String
+
+    enum CodingKeys: String, CodingKey {
+        case imagepath, carduid, ext
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        imagepath = try c.decode(String.self, forKey: .imagepath)
+        carduid = try c.decode(String.self, forKey: .carduid)
+        ext = try c.decodeIfPresent(String.self, forKey: .ext) ?? kImageExtension
+    }
 }
 
 struct STSConfig: Decodable {
@@ -56,7 +67,8 @@ struct STSConfig: Decodable {
 
 struct InfoQueryResult: Decodable {
     let datastatus: String
-    let carduid: String
+    /// 部分接口返回的 `data` 不含顶层 `carduid`（仅在 `resp` 等嵌套里出现）；缺省时由调用方使用请求参数中的 carduid。
+    let carduid: String?
     let imageurl: String?
     let resultimg: String?
     let imageurl1: String?

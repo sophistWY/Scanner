@@ -34,7 +34,7 @@ final class OSSUploadManager {
             return
         }
 
-        let objectKey = imageInfo.imagepath + kImageExtension
+        let objectKey = imageInfo.imagepath + imageInfo.ext
 
         let put = OSSPutObjectRequest()
         put.bucketName = stsConfig.bucket
@@ -45,6 +45,7 @@ final class OSSUploadManager {
         guard let callbackURL = NetworkManager.shared.buildOSSCallbackURL(
             carduid: imageInfo.carduid,
             imagepath: imageInfo.imagepath,
+            ext: imageInfo.ext,
             pdftype: pdftype,
             imgtype: imgtype,
             pointstring: pointstring
@@ -120,6 +121,7 @@ final class OSSUploadManager {
                                 NetworkManager.shared.pollProcessingResult(
                                     carduid: imageInfo.carduid,
                                     imagepath: imageInfo.imagepath,
+                                    ext: imageInfo.ext,
                                     completion: completion
                                 )
 
