@@ -283,18 +283,11 @@ final class ScanViewController: BaseViewController {
             make.bottom.equalTo(bottomBar.safeAreaLayoutGuide.snp.bottom).offset(-20)
         }
 
-        let galleryAspect: CGFloat = {
-            guard let img = UIImage(named: "crop_frame_full"), img.size.width > 0 else {
-                return 54.0 / 72.0
-            }
-            return img.size.height / img.size.width
-        }()
-
         galleryButton.snp.makeConstraints { make in
             make.leading.equalToSuperview().offset(24)
             make.centerY.equalTo(shutterButton)
-            make.width.equalTo(72)
-            make.height.equalTo(72 * galleryAspect)
+            make.width.equalTo(44)
+            make.height.equalTo(58)
         }
 
         doneButton.snp.makeConstraints { make in

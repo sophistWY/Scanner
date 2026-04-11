@@ -145,6 +145,11 @@ final class DocumentListViewController: BaseViewController {
         topGradientLayer.frame = topGradientView.bounds
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        viewModel.loadDocuments()
+    }
+
     override func setupConstraints() {
         topGradientView.snp.makeConstraints { make in
             make.top.leading.trailing.equalToSuperview()

@@ -25,7 +25,7 @@ enum ScannerToast {
 
             guard let window = keyWindow() else { return }
 
-            let dim = UIView(frame: window.bounds)
+            let dim = UIView()
             dim.backgroundColor = .clear
             dim.isUserInteractionEnabled = false
 
@@ -65,6 +65,11 @@ enum ScannerToast {
             dim.translatesAutoresizingMaskIntoConstraints = false
 
             NSLayoutConstraint.activate([
+                dim.leadingAnchor.constraint(equalTo: window.leadingAnchor),
+                dim.trailingAnchor.constraint(equalTo: window.trailingAnchor),
+                dim.topAnchor.constraint(equalTo: window.topAnchor),
+                dim.bottomAnchor.constraint(equalTo: window.bottomAnchor),
+
                 card.centerXAnchor.constraint(equalTo: dim.centerXAnchor),
                 card.centerYAnchor.constraint(equalTo: dim.centerYAnchor),
                 card.widthAnchor.constraint(lessThanOrEqualTo: dim.widthAnchor, constant: -80),
