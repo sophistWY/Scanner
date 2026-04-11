@@ -12,7 +12,8 @@ import SnapKit
 
 class BaseWebViewController: BaseViewController {
 
-    override var customNavigationBarLeftItem: CustomNavigationBarLeft? { .close }
+    /// 推送进栈时显示返回；仅作模态根页时由基类解析为关闭。
+    override var customNavigationBarLeftItem: CustomNavigationBarLeft? { nil }
 
     // MARK: - Properties
 
@@ -75,10 +76,6 @@ class BaseWebViewController: BaseViewController {
         }
     }
 
-    override func customNavigationBarLeftButtonTapped() {
-        closeTapped()
-    }
-
     override func bindViewModel() {
         progressObservation = webView.observe(\.estimatedProgress, options: .new) { [weak self] webView, _ in
             let progress = Float(webView.estimatedProgress)
@@ -94,17 +91,11 @@ class BaseWebViewController: BaseViewController {
 
         guard let url = URL(string: urlString) else {
             showAlert(title: "错误", message: "无效的URL") { [weak self] in
-                self?.dismiss(animated: true)
+                self?.defaultCustomNavigationBarPopOrDismiss()
             }
             return
         }
         webView.load(URLRequest(url: url))
-    }
-
-    // MARK: - Actions
-
-    @objc private func closeTapped() {
-        dismiss(animated: true)
     }
 }
 

@@ -110,6 +110,12 @@ final class DocumentService {
         }
     }
 
+    // MARK: - Fetch
+
+    func document(byId id: Int64) -> DocumentModel? {
+        db.getDocument(byId: id)
+    }
+
     // MARK: - Rename
 
     @discardableResult

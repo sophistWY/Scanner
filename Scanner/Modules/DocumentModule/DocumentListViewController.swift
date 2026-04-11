@@ -219,11 +219,7 @@ final class DocumentListViewController: BaseViewController {
     // MARK: - Open Document
 
     private func openDocument(_ doc: DocumentModel) {
-        guard let images = PDFGenerator.shared.extractImages(from: doc.pdfURL) else {
-            showAlert(title: "错误", message: "无法打开文档")
-            return
-        }
-        Router.shared.openEdit(images: images, documentName: doc.name, documentId: doc.id, delegate: self)
+        Router.shared.openEdit(existingDocument: doc, delegate: self)
     }
 
     private func renameDocument(at index: Int) {
@@ -299,12 +295,8 @@ extension DocumentListViewController: UICollectionViewDataSource, UICollectionVi
 
 extension DocumentListViewController: EditViewControllerDelegate {
 
-    func editViewController(_ vc: EditViewController, didFinishWith images: [UIImage]) {
-        if let docId = vc.documentId {
-            viewModel.updateDocument(id: docId, name: vc.documentName, images: images) { _ in }
-        } else {
-            viewModel.createDocument(name: vc.documentName, images: images) { _ in }
-        }
+    func editViewController(_ vc: EditViewController, didFinishWith _: [UIImage]) {
+        viewModel.loadDocuments()
     }
 
     func editViewControllerDidCancel(_ vc: EditViewController) {}

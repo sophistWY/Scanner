@@ -74,6 +74,21 @@ extension UIImage {
         }
     }
 
+    /// 顺时针旋转 90°（用于裁剪页）。
+    func rotatedClockwise90() -> UIImage {
+        let fixed = fixOrientation()
+        let newSize = CGSize(width: fixed.size.height, height: fixed.size.width)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = fixed.scale
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
+        return renderer.image { ctx in
+            ctx.cgContext.translateBy(x: newSize.width, y: 0)
+            ctx.cgContext.rotate(by: .pi / 2)
+            fixed.draw(in: CGRect(origin: .zero, size: fixed.size))
+        }
+    }
+
     /// Load image from remote URL (callback may be on background queue).
     static func load(from url: URL, completion: @escaping (Result<UIImage, Error>) -> Void) {
         let task = URLSession.shared.dataTask(with: url) { data, _, error in

@@ -8,7 +8,6 @@ import SnapKit
 
 final class HomeViewController: BaseViewController {
 
-    private var pendingScanImages: [UIImage]?
     private var pendingScanSource: ScanType = .document
 
     override var prefersCustomNavigationBarHidden: Bool { false }
@@ -89,11 +88,6 @@ final class HomeViewController: BaseViewController {
         view.bringSubviewToFront(customNavigationBar)
     }
 
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        handlePendingScanImages()
-    }
-
     override func setupUI() {
         title = nil
         view.backgroundColor = .white
@@ -109,8 +103,8 @@ final class HomeViewController: BaseViewController {
         customNavigationBar.configureBarAppearance(
             backgroundColor: UIColor(hex: 0x305DFF),
             titleColor: .white,
-            buttonTintColor: .white,
-            showBottomHairline: false
+            leftButtonTintColor: .white,
+            rightButtonTintColor: .white
         )
         view.bringSubviewToFront(customNavigationBar)
     }
@@ -189,31 +183,30 @@ final class HomeViewController: BaseViewController {
         }
     }
 
-    private func handlePendingScanImages() {
-        guard let images = pendingScanImages else { return }
-        pendingScanImages = nil
-        let name = "扫描文档_\(Date().formatted(style: .short))"
-        Router.shared.openEdit(
-            images: images,
-            documentName: name,
-            sourceScanType: pendingScanSource,
-            delegate: self
-        )
-    }
 }
 
 extension HomeViewController: ScanViewControllerDelegate {
-    func scanViewController(_ vc: ScanViewController, didFinishWith images: [UIImage]) {
-        pendingScanImages = images
-    }
+    func scanViewController(_ vc: ScanViewController, didFinishWith images: [UIImage]) {}
 
     func scanViewControllerDidCancel(_ vc: ScanViewController) {}
 }
 
 extension HomeViewController: EditViewControllerDelegate {
-    func editViewController(_ vc: EditViewController, didFinishWith images: [UIImage]) {
-        Router.shared.tabBarController?.selectedIndex = 1
+    func editViewController(_ vc: EditViewController, didFinishWith _: [UIImage]) {
+        // 文档已由编辑页写入；列表在切换到「文档」Tab 时 viewWillAppear 会刷新
     }
 
     func editViewControllerDidCancel(_ vc: EditViewController) {}
+
+    func editViewControllerRequestRetake(_ vc: EditViewController) {
+        // 必须用编辑页所在导航栈 pop：若用户在相机权限弹窗期间切过 Tab，扫描/编辑可能 push 在「文档」等 Tab 的 nav 上，此时 Home 的 navigationController 与编辑页不一致，pop 会无效。
+        let popEdit: () -> Void = {
+            _ = vc.navigationController?.popViewController(animated: true)
+        }
+        if vc.presentedViewController != nil {
+            vc.dismiss(animated: true, completion: popEdit)
+        } else {
+            popEdit()
+        }
+    }
 }

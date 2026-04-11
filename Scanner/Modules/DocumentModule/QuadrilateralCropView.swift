@@ -33,8 +33,8 @@ final class QuadrilateralCropView: UIView {
 
     // MARK: - Appearance
 
-    private let cornerSize: CGFloat = 28
-    private let edgeSize: CGFloat = 20
+    /// 四角与四边中点使用同一尺寸，避免角上圆明显大于边上的圆
+    private let handleSize: CGFloat = 20
     private let lineWidth: CGFloat = 2.0
     private let accentColor = UIColor.systemBlue
 
@@ -90,10 +90,10 @@ final class QuadrilateralCropView: UIView {
         layer.addSublayer(gridLayer)
 
         for _ in 0..<4 {
-            cornerHandles.append(makeHandle(size: cornerSize, borderWidth: 2.5))
+            cornerHandles.append(makeHandle(size: handleSize, borderWidth: 2.0))
         }
         for _ in 0..<4 {
-            edgeHandles.append(makeHandle(size: edgeSize, borderWidth: 2.0))
+            edgeHandles.append(makeHandle(size: handleSize, borderWidth: 2.0))
         }
 
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))

@@ -82,6 +82,11 @@ final class Router {
         push(detailVC)
     }
 
+    func openExportResult(document: DocumentModel) {
+        let vc = ExportResultViewController(document: document)
+        push(vc)
+    }
+
     func openEdit(
         images: [UIImage],
         documentName: String,
@@ -99,9 +104,16 @@ final class Router {
         push(editVC)
     }
 
+    /// Push immediately; PDF pages are decoded after transition (see `EditViewController`).
+    func openEdit(existingDocument document: DocumentModel, delegate: EditViewControllerDelegate) {
+        let editVC = EditViewController(existingDocument: document)
+        editVC.editDelegate = delegate
+        push(editVC)
+    }
+
     func openWeb(url: String, title: String? = nil) {
         let webVC = BaseWebViewController(urlString: url, title: title)
-        presentInNav(webVC)
+        push(webVC)
     }
 
     // MARK: - Utility

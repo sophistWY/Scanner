@@ -90,6 +90,8 @@ final class CustomNavigationBarView: UIView {
             make.leading.greaterThanOrEqualTo(leftButton.snp.trailing).offset(8)
             make.trailing.lessThanOrEqualTo(rightButton.snp.leading).offset(-8)
         }
+
+        bottomHairline.isHidden = true
     }
 
     @available(*, unavailable)
@@ -102,17 +104,18 @@ final class CustomNavigationBarView: UIView {
     }
 
     /// 自定义导航栏配色（如首页蓝底白字）。`apply` 不会覆盖 `backgroundColor` / 标题色，需在 `refreshCustomNavigationBarContent` 之后如需重置可再调用。
+    /// - Note: 左侧返回/关闭图标使用 `leftButtonTintColor`（默认 `label`）；右侧操作使用 `rightButtonTintColor`（默认主题色），避免返回键被染成系统蓝。
     func configureBarAppearance(
         backgroundColor: UIColor,
         titleColor: UIColor,
-        buttonTintColor: UIColor? = nil,
-        showBottomHairline: Bool = true
+        leftButtonTintColor: UIColor = .label,
+        rightButtonTintColor: UIColor = .appThemePrimary,
+        showBottomHairline: Bool = false
     ) {
         self.backgroundColor = backgroundColor
         titleLabel.textColor = titleColor
-        let tint = buttonTintColor ?? titleColor
-        leftButton.tintColor = tint
-        rightButton.tintColor = tint
+        leftButton.tintColor = leftButtonTintColor
+        rightButton.tintColor = rightButtonTintColor
         bottomHairline.isHidden = !showBottomHairline
     }
 
@@ -154,7 +157,7 @@ final class CustomNavigationBarView: UIView {
             leftButton.isHidden = false
             leftButton.setImage(nil, for: .normal)
             leftButton.setTitle(t, for: .normal)
-            leftButton.setTitleColor(.label, for: .normal)
+            leftButton.setTitleColor(leftButton.tintColor, for: .normal)
             if let target, let leftAction {
                 leftButton.addTarget(target, action: leftAction, for: .touchUpInside)
             }

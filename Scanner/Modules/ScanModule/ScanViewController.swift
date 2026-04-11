@@ -374,8 +374,18 @@ final class ScanViewController: BaseViewController {
     @objc private func doneTapped() {
         let images = viewModel.capturedImages.value
         guard !images.isEmpty else { return }
-        scanDelegate?.scanViewController(self, didFinishWith: images)
-        dismissScan()
+        let name = "扫描文档_\(Date().formatted(style: .short))"
+        guard let editDelegate = scanDelegate as? EditViewControllerDelegate else {
+            scanDelegate?.scanViewController(self, didFinishWith: images)
+            dismissScan()
+            return
+        }
+        Router.shared.openEdit(
+            images: images,
+            documentName: name,
+            sourceScanType: viewModel.scanType,
+            delegate: editDelegate
+        )
     }
 
     @objc private func torchTapped() {
