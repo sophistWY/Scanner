@@ -70,6 +70,22 @@ extension UIImage {
             draw(in: CGRect(origin: .zero, size: size))
         }
     }
+
+    /// Load image from remote URL (callback may be on background queue).
+    static func load(from url: URL, completion: @escaping (Result<UIImage, Error>) -> Void) {
+        let task = URLSession.shared.dataTask(with: url) { data, _, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            guard let data = data, let image = UIImage(data: data) else {
+                completion(.failure(NetworkError.noData))
+                return
+            }
+            completion(.success(image))
+        }
+        task.resume()
+    }
 }
 
 // MARK: - String

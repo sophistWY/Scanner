@@ -9,6 +9,7 @@ import SnapKit
 final class HomeViewController: BaseViewController {
 
     private var pendingScanImages: [UIImage]?
+    private var pendingScanSource: ScanType = .document
 
     override var prefersNavigationBarHidden: Bool { true }
 
@@ -20,17 +21,17 @@ final class HomeViewController: BaseViewController {
 
     private let titleLabel: UILabel = {
         let label = UILabel()
-        label.text = "手机扫描仪🖨️"
-        label.font = .systemFont(ofSize: 20, weight: .bold)
+        label.text = "手机扫描仪"
+        label.font = .systemFont(ofSize: 22, weight: .bold)
         label.textColor = .white
         return label
     }()
 
     private let subtitleLabel: UILabel = {
         let label = UILabel()
-        label.text = "扫描图片生成PDF"
+        label.text = "拍照扫描 · 导出高清 PDF"
         label.font = .systemFont(ofSize: 14, weight: .medium)
-        label.textColor = UIColor.white.withAlphaComponent(0.9)
+        label.textColor = UIColor.white.withAlphaComponent(0.92)
         return label
     }()
 
@@ -53,7 +54,7 @@ final class HomeViewController: BaseViewController {
 
     private lazy var scanCertificateButton: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setTitle("扫描证件（身份证、营业执照等）", for: .normal)
+        btn.setTitle("扫描证件（身份证、银行卡等）", for: .normal)
         btn.setTitleColor(UIColor(hex: 0x333333), for: .normal)
         btn.titleLabel?.font = .systemFont(ofSize: 16, weight: .regular)
         btn.backgroundColor = .white
@@ -62,6 +63,23 @@ final class HomeViewController: BaseViewController {
         btn.layer.borderColor = UIColor(hex: 0xAFAFAF).cgColor
         btn.addTarget(self, action: #selector(scanCertificateTapped), for: .touchUpInside)
         return btn
+    }()
+
+    private let actionCardView: UIView = {
+        let v = UIView()
+        v.backgroundColor = .white
+        v.layer.cornerRadius = 16
+        v.layer.masksToBounds = false
+        return v
+    }()
+
+    private let docHintLabel: UILabel = {
+        let label = UILabel()
+        label.text = "扫描完成后可在「文档」页查看与管理"
+        label.font = .systemFont(ofSize: 12, weight: .regular)
+        label.textColor = UIColor(hex: 0x888888)
+        label.textAlignment = .center
+        return label
     }()
 
     override func viewDidAppear(_ animated: Bool) {
@@ -75,8 +93,10 @@ final class HomeViewController: BaseViewController {
         view.addSubview(titleLabel)
         view.addSubview(subtitleLabel)
         view.addSubview(heroImageView)
-        view.addSubview(scanDocumentButton)
-        view.addSubview(scanCertificateButton)
+        view.addSubview(actionCardView)
+        actionCardView.addSubview(scanDocumentButton)
+        actionCardView.addSubview(scanCertificateButton)
+        view.addSubview(docHintLabel)
     }
 
     override func setupConstraints() {
@@ -101,16 +121,28 @@ final class HomeViewController: BaseViewController {
             make.height.equalTo(260)
         }
 
+        actionCardView.snp.makeConstraints { make in
+            make.top.equalTo(heroImageView.snp.bottom).offset(20)
+            make.leading.trailing.equalToSuperview().inset(20)
+        }
+        actionCardView.addShadow(color: .black, opacity: 0.08, offset: .init(width: 0, height: 4), radius: 12)
+
         scanDocumentButton.snp.makeConstraints { make in
-            make.top.equalTo(heroImageView.snp.bottom).offset(24)
-            make.leading.trailing.equalToSuperview().inset(26)
+            make.top.equalToSuperview().offset(18)
+            make.leading.trailing.equalToSuperview().inset(16)
             make.height.equalTo(52)
         }
 
         scanCertificateButton.snp.makeConstraints { make in
-            make.top.equalTo(scanDocumentButton.snp.bottom).offset(20)
+            make.top.equalTo(scanDocumentButton.snp.bottom).offset(14)
             make.leading.trailing.equalTo(scanDocumentButton)
             make.height.equalTo(52)
+            make.bottom.equalToSuperview().offset(-18)
+        }
+
+        docHintLabel.snp.makeConstraints { make in
+            make.top.equalTo(actionCardView.snp.bottom).offset(14)
+            make.leading.trailing.equalToSuperview().inset(24)
         }
     }
 
@@ -129,6 +161,7 @@ final class HomeViewController: BaseViewController {
     }
 
     private func startScan(_ type: ScanType) {
+        pendingScanSource = type
         PermissionHelper.shared.requestCameraPermission(from: self) { [weak self] granted in
             guard granted, let self else { return }
             Router.shared.openScan(type: type, delegate: self)
@@ -139,7 +172,12 @@ final class HomeViewController: BaseViewController {
         guard let images = pendingScanImages else { return }
         pendingScanImages = nil
         let name = "扫描文档_\(Date().formatted(style: .short))"
-        Router.shared.openEdit(images: images, documentName: name, delegate: self)
+        Router.shared.openEdit(
+            images: images,
+            documentName: name,
+            sourceScanType: pendingScanSource,
+            delegate: self
+        )
     }
 }
 

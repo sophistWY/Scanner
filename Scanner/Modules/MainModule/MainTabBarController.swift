@@ -22,7 +22,9 @@ final class MainTabBarController: UITabBarController {
     }
 
     private func setupTabs() {
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
+        // Design: tab glyphs ~24pt visual weight; SF Symbols at 22pt read oversized in stacked layout.
+        let point = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular)
+        let iconConfig = point.applying(UIImage.SymbolConfiguration(scale: .small))
 
         homeNavigationController.tabBarItem = UITabBarItem(
             title: "首页",
@@ -57,11 +59,11 @@ final class MainTabBarController: UITabBarController {
 
         appearance.stackedLayoutAppearance.normal.titleTextAttributes = [
             .foregroundColor: normalColor,
-            .font: UIFont.systemFont(ofSize: 13)
+            .font: UIFont.systemFont(ofSize: 12)
         ]
         appearance.stackedLayoutAppearance.selected.titleTextAttributes = [
             .foregroundColor: selectedColor,
-            .font: UIFont.systemFont(ofSize: 13, weight: .semibold)
+            .font: UIFont.systemFont(ofSize: 12, weight: .semibold)
         ]
 
         tabBar.standardAppearance = appearance

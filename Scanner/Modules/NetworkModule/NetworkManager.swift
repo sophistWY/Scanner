@@ -164,7 +164,9 @@ final class NetworkManager {
         if let pointstring { params["pointstring"] = pointstring }
 
         guard let sign = crypto.generateSign(params: params) else { return nil }
-        return "\(kHost)\(kPathSTSUpload)?sign=\(sign)"
+        var components = URLComponents(string: "\(kHost)\(kPathSTSUpload)")
+        components?.queryItems = [URLQueryItem(name: "sign", value: sign)]
+        return components?.url?.absoluteString
     }
 
     // MARK: - 4. 查询处理结果

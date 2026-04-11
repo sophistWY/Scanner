@@ -31,8 +31,9 @@ final class ProfileViewController: BaseViewController {
     }()
 
     private let menuItems: [(title: String, action: Selector)] = [
-        ("隐私协议", #selector(privacyTapped)),
-        ("服务协议", #selector(serviceTapped)),
+        ("隐私政策", #selector(privacyTapped)),
+        ("用户协议", #selector(serviceTapped)),
+        ("订阅说明", #selector(subscriptionTapped)),
         ("意见反馈", #selector(feedbackTapped)),
         ("清空缓存", #selector(clearCacheTapped))
     ]
@@ -113,11 +114,15 @@ final class ProfileViewController: BaseViewController {
     }
 
     @objc private func privacyTapped() {
-        Router.shared.openWeb(url: "https://www.apple.com/legal/privacy/", title: "隐私协议")
+        Router.shared.openWeb(url: kPrivacyPolicyURL, title: "隐私政策")
     }
 
     @objc private func serviceTapped() {
-        Router.shared.openWeb(url: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/", title: "服务协议")
+        Router.shared.openWeb(url: kUserAgreementURL, title: "用户协议")
+    }
+
+    @objc private func subscriptionTapped() {
+        Router.shared.openWeb(url: kSubscriptionInfoURL, title: "订阅说明")
     }
 
     @objc private func feedbackTapped() {

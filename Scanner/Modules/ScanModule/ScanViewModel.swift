@@ -25,6 +25,14 @@ enum ScanType {
         case .bankCard, .businessLicense: return false
         }
     }
+
+    /// 服务端 `pdftype`：不传为文档智能处理；`4` 银行卡/卡片；`7` 护照。
+    var stsPdfType: String? {
+        switch self {
+        case .bankCard: return "4"
+        case .document, .businessLicense: return nil
+        }
+    }
 }
 
 final class ScanViewModel: BaseViewModel {

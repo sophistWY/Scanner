@@ -10,12 +10,22 @@ final class DocumentCell: UITableViewCell {
 
     // MARK: - UI
 
+    /// Holds shadow; inner card clips content (design: floating card, no stroke).
+    private let shadowContainer: UIView = {
+        let v = UIView()
+        v.backgroundColor = .clear
+        v.layer.shadowColor = UIColor.black.withAlphaComponent(0.08).cgColor
+        v.layer.shadowOffset = CGSize(width: 0, height: 3)
+        v.layer.shadowRadius = 10
+        v.layer.shadowOpacity = 1
+        return v
+    }()
+
     private let cardView: UIView = {
         let v = UIView()
         v.backgroundColor = .white
-        v.layer.cornerRadius = 14
-        v.layer.borderWidth = 1
-        v.layer.borderColor = UIColor(hex: 0xECECF3).cgColor
+        v.layer.cornerRadius = 16
+        v.layer.masksToBounds = true
         return v
     }()
 
@@ -28,7 +38,7 @@ final class DocumentCell: UITableViewCell {
 
     private let nameLabel: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 16, weight: .medium)
+        label.font = .systemFont(ofSize: 16, weight: .semibold)
         label.textColor = .label
         label.numberOfLines = 1
         return label
@@ -37,14 +47,7 @@ final class DocumentCell: UITableViewCell {
     private let detailLabel: UILabel = {
         let label = UILabel()
         label.font = .systemFont(ofSize: 13)
-        label.textColor = .secondaryLabel
-        return label
-    }()
-
-    private let pageCountLabel: UILabel = {
-        let label = UILabel()
-        label.font = .systemFont(ofSize: 12)
-        label.textColor = .tertiaryLabel
+        label.textColor = UIColor(hex: 0x9B9B9B)
         return label
     }()
 
@@ -67,27 +70,32 @@ final class DocumentCell: UITableViewCell {
         selectionStyle = .none
         contentView.backgroundColor = .clear
 
-        contentView.addSubview(cardView)
+        contentView.addSubview(shadowContainer)
+        shadowContainer.addSubview(cardView)
         cardView.addSubview(pdfImageView)
         cardView.addSubview(nameLabel)
         cardView.addSubview(detailLabel)
-        cardView.addSubview(pageCountLabel)
 
-        let padding = AppConstants.UI.padding
+        let horizontalInset: CGFloat = 16
+        let verticalInset: CGFloat = 6
+
+        shadowContainer.snp.makeConstraints { make in
+            make.top.bottom.equalToSuperview().inset(verticalInset)
+            make.leading.trailing.equalToSuperview().inset(horizontalInset)
+        }
 
         cardView.snp.makeConstraints { make in
-            make.top.bottom.equalToSuperview().inset(8)
-            make.leading.trailing.equalToSuperview().inset(16)
+            make.edges.equalToSuperview()
         }
 
         pdfImageView.snp.makeConstraints { make in
-            make.trailing.equalToSuperview().offset(-20)
+            make.trailing.equalToSuperview().offset(-16)
             make.centerY.equalToSuperview()
-            make.width.height.equalTo(42)
+            make.width.height.equalTo(36)
         }
 
         nameLabel.snp.makeConstraints { make in
-            make.leading.equalToSuperview().offset(padding)
+            make.leading.equalToSuperview().offset(16)
             make.trailing.lessThanOrEqualTo(pdfImageView.snp.leading).offset(-12)
             make.top.equalToSuperview().offset(16)
         }
@@ -96,12 +104,16 @@ final class DocumentCell: UITableViewCell {
             make.leading.equalTo(nameLabel)
             make.trailing.equalTo(nameLabel)
             make.top.equalTo(nameLabel.snp.bottom).offset(4)
+            make.bottom.lessThanOrEqualToSuperview().offset(-16)
         }
+    }
 
-        pageCountLabel.snp.makeConstraints { make in
-            make.leading.equalTo(nameLabel)
-            make.top.equalTo(detailLabel.snp.bottom).offset(2)
-        }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let radius: CGFloat = 16
+        let rect = shadowContainer.bounds
+        guard rect.width > 0, rect.height > 0 else { return }
+        shadowContainer.layer.shadowPath = UIBezierPath(roundedRect: rect, cornerRadius: radius).cgPath
     }
 
     // MARK: - Configure
@@ -109,7 +121,6 @@ final class DocumentCell: UITableViewCell {
     func configure(with document: DocumentModel) {
         nameLabel.text = document.name
         detailLabel.text = document.formattedCreateTime
-        pageCountLabel.text = "\(document.pageCount)页"
     }
 
     override func prepareForReuse() {

@@ -12,6 +12,12 @@ final class DocumentListViewController: BaseViewController {
 
     // MARK: - UI
 
+    private lazy var listGradientView: UIView = {
+        let v = UIView()
+        v.isUserInteractionEnabled = false
+        return v
+    }()
+
     private lazy var tableView: UITableView = {
         let tv = UITableView(frame: .zero, style: .plain)
         tv.delegate = self
@@ -19,7 +25,7 @@ final class DocumentListViewController: BaseViewController {
         tv.register(cellType: DocumentCell.self)
         tv.separatorStyle = .none
         tv.backgroundColor = .clear
-        tv.rowHeight = 96
+        tv.rowHeight = 88
         tv.showsVerticalScrollIndicator = false
         return tv
     }()
@@ -86,14 +92,33 @@ final class DocumentListViewController: BaseViewController {
 
     // MARK: - Setup
 
+    private let listGradientLayer: CAGradientLayer = {
+        let g = CAGradientLayer()
+        g.colors = [
+            UIColor(hex: 0xE8F1FF).cgColor,
+            UIColor(hex: 0xF6F6F8).cgColor
+        ]
+        g.locations = [0, 1]
+        g.startPoint = CGPoint(x: 0.5, y: 0)
+        g.endPoint = CGPoint(x: 0.5, y: 1)
+        return g
+    }()
+
     override func setupUI() {
         view.backgroundColor = UIColor(hex: 0xF6F6F8)
 
         view.addSubview(headerView)
         view.addSubview(noticeBar)
         noticeBar.addSubview(noticeLabel)
+        view.addSubview(listGradientView)
+        listGradientView.layer.insertSublayer(listGradientLayer, at: 0)
         view.addSubview(tableView)
         view.addSubview(emptyStateView)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        listGradientLayer.frame = listGradientView.bounds
     }
 
     override func setupConstraints() {
@@ -110,6 +135,11 @@ final class DocumentListViewController: BaseViewController {
 
         noticeLabel.snp.makeConstraints { make in
             make.edges.equalToSuperview().inset(UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12))
+        }
+
+        listGradientView.snp.makeConstraints { make in
+            make.top.equalTo(noticeBar.snp.bottom)
+            make.leading.trailing.bottom.equalToSuperview()
         }
 
         tableView.snp.makeConstraints { make in

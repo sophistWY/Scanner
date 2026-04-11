@@ -27,6 +27,9 @@ final class EditViewController: BaseViewController {
     private(set) var documentId: Int64?
     private(set) var documentName: String
 
+    /// 来自首页扫描入口时携带，用于云端增强的 `pdftype`；从文档列表打开时为 `nil`（按文档模式处理）。
+    private let sourceScanType: ScanType?
+
     private var images: [UIImage]
     /// Baseline JPEG per page (filters / revert decode from this — avoids duplicating full bitmaps).
     private var originalJPEGs: [Data]
@@ -70,6 +73,18 @@ final class EditViewController: BaseViewController {
         return label
     }()
 
+    private lazy var cloudEnhanceButton: UIButton = {
+        let btn = UIButton(type: .system)
+        btn.setTitle("云端增强", for: .normal)
+        btn.setTitleColor(UIColor(hex: 0x5B9AFF), for: .normal)
+        btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
+        btn.backgroundColor = UIColor(white: 0.22, alpha: 1)
+        btn.layer.cornerRadius = 8
+        btn.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+        btn.addTarget(self, action: #selector(cloudEnhanceTapped), for: .touchUpInside)
+        return btn
+    }()
+
     private lazy var filterScrollView: UIScrollView = {
         let sv = UIScrollView()
         sv.showsHorizontalScrollIndicator = false
@@ -111,7 +126,7 @@ final class EditViewController: BaseViewController {
 
     // MARK: - Init
 
-    init(images: [UIImage], documentName: String, documentId: Int64? = nil) {
+    init(images: [UIImage], documentName: String, documentId: Int64? = nil, sourceScanType: ScanType? = nil) {
         var builtImages: [UIImage] = []
         var builtJPEGs: [Data] = []
         builtImages.reserveCapacity(images.count)
@@ -130,6 +145,7 @@ final class EditViewController: BaseViewController {
         self.appliedFilterIndex = Array(repeating: 0, count: builtImages.count)
         self.documentName = documentName
         self.documentId = documentId
+        self.sourceScanType = sourceScanType
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -155,6 +171,7 @@ final class EditViewController: BaseViewController {
         view.addSubview(collectionView)
         view.addSubview(bottomContainer)
         bottomContainer.addSubview(pageLabel)
+        bottomContainer.addSubview(cloudEnhanceButton)
         bottomContainer.addSubview(filterScrollView)
         filterScrollView.addSubview(filterStack)
         bottomContainer.addSubview(toolBar)
@@ -179,8 +196,14 @@ final class EditViewController: BaseViewController {
 
         pageLabel.snp.makeConstraints { make in
             make.top.equalToSuperview().offset(8)
-            make.centerX.equalToSuperview()
+            make.leading.equalToSuperview().offset(16)
+            make.trailing.lessThanOrEqualTo(cloudEnhanceButton.snp.leading).offset(-8)
             make.height.equalTo(20)
+        }
+
+        cloudEnhanceButton.snp.makeConstraints { make in
+            make.centerY.equalTo(pageLabel)
+            make.trailing.equalToSuperview().offset(-16)
         }
 
         filterScrollView.snp.makeConstraints { make in
@@ -425,6 +448,72 @@ final class EditViewController: BaseViewController {
             self.currentPage = min(self.currentPage, self.images.count - 1)
             self.collectionView.reloadData()
         }
+    }
+
+    @objc private func cloudEnhanceTapped() {
+        guard !isExporting, currentPage < images.count else { return }
+        guard NetworkStatusMonitor.shared.isReachable else {
+            showError("网络不可用，请检查网络后重试")
+            return
+        }
+        let pdftype = sourceScanType?.stsPdfType
+        guard let base = UIImage(data: originalJPEGs[currentPage]) else { return }
+        let page = currentPage
+
+        cloudEnhanceButton.isEnabled = false
+        showLoading(message: "准备上传…")
+
+        OSSUploadManager.shared.uploadAndProcess(
+            image: base,
+            pdftype: pdftype,
+            progress: { [weak self] msg in
+                DispatchQueue.main.async {
+                    self?.showLoading(message: msg)
+                }
+            },
+            completion: { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    switch result {
+                    case .success(let info):
+                        let urlStr = info.resultimg?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        guard !urlStr.isEmpty, let url = URL(string: urlStr) else {
+                            self.cloudEnhanceButton.isEnabled = true
+                            self.hideLoading()
+                            self.showError("未返回处理结果")
+                            return
+                        }
+                        self.showLoading(message: "下载结果…")
+                        UIImage.load(from: url) { [weak self] dl in
+                            DispatchQueue.main.async {
+                                guard let self else { return }
+                                self.cloudEnhanceButton.isEnabled = true
+                                self.hideLoading()
+                                switch dl {
+                                case .success(let newImage):
+                                    let n = newImage.constrainedToMaxPixelLength(AppConstants.ScanImage.maxPixelLength)
+                                    let q = AppConstants.ScanImage.originalJPEGQuality
+                                    let data = n.jpegData(compressionQuality: q) ?? n.pngData() ?? Data()
+                                    guard page < self.images.count else { return }
+                                    self.originalJPEGs[page] = data
+                                    self.images[page] = UIImage(data: data) ?? n
+                                    self.appliedFilterIndex[page] = 0
+                                    self.collectionView.reloadItems(at: [IndexPath(item: page, section: 0)])
+                                    self.generateFilterThumbnails()
+                                    self.showSuccess("云端增强完成")
+                                case .failure(let err):
+                                    self.showError(err.localizedDescription)
+                                }
+                            }
+                        }
+                    case .failure(let error):
+                        self.cloudEnhanceButton.isEnabled = true
+                        self.hideLoading()
+                        self.showError(error.localizedDescription)
+                    }
+                }
+            }
+        )
     }
 
     @objc private func filterItemTapped(_ gesture: UITapGestureRecognizer) {

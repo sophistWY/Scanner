@@ -82,8 +82,19 @@ final class Router {
         push(detailVC)
     }
 
-    func openEdit(images: [UIImage], documentName: String, documentId: Int64? = nil, delegate: EditViewControllerDelegate) {
-        let editVC = EditViewController(images: images, documentName: documentName, documentId: documentId)
+    func openEdit(
+        images: [UIImage],
+        documentName: String,
+        documentId: Int64? = nil,
+        sourceScanType: ScanType? = nil,
+        delegate: EditViewControllerDelegate
+    ) {
+        let editVC = EditViewController(
+            images: images,
+            documentName: documentName,
+            documentId: documentId,
+            sourceScanType: sourceScanType
+        )
         editVC.editDelegate = delegate
         push(editVC)
     }

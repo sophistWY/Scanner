@@ -15,6 +15,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         setupAppearance()
         FileHelper.shared.ensureDirectoriesExist()
         NetworkStatusMonitor.shared.start()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
+            NetworkManager.shared.fetchLanguages { result in
+                if case .success = result {
+                    Logger.shared.log("多语言配置已拉取", level: .debug)
+                }
+            }
+        }
         return true
     }
 
