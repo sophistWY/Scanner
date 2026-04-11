@@ -28,6 +28,13 @@ final class ScanViewController: BaseViewController {
 
     // MARK: - UI Components
 
+    /// Fixed black top bar: back + status + torch (design: nav + camera + bottom).
+    private lazy var topNavBarContainer: UIView = {
+        let v = UIView()
+        v.backgroundColor = .black
+        return v
+    }()
+
     private lazy var previewContainerView: UIView = {
         let v = UIView()
         v.backgroundColor = .black
@@ -36,9 +43,12 @@ final class ScanViewController: BaseViewController {
 
     private lazy var overlayView = RectangleOverlayView()
 
+    /// Static mask + frame artwork; sits under `overlayView` (Vision quad).
+    private var scanOverlayContainerView: ScanOverlayContainerView!
+
     private lazy var bottomBar: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor.black.withAlphaComponent(0.85)
+        v.backgroundColor = .black
         return v
     }()
 
@@ -53,9 +63,9 @@ final class ScanViewController: BaseViewController {
 
     private lazy var shutterButton: UIButton = {
         let btn = UIButton(type: .custom)
-        let config = UIImage.SymbolConfiguration(pointSize: 60, weight: .ultraLight)
-        btn.setImage(UIImage(systemName: "circle.inset.filled", withConfiguration: config), for: .normal)
-        btn.tintColor = .white
+        btn.adjustsImageWhenHighlighted = false
+        btn.setImage(ScanShutterButtonImageRenderer.image(diameter: 72), for: .normal)
+        btn.setImage(ScanShutterButtonImageRenderer.image(diameter: 72, pressed: true), for: .highlighted)
         btn.addTarget(self, action: #selector(shutterTapped), for: .touchUpInside)
         return btn
     }()
@@ -78,17 +88,12 @@ final class ScanViewController: BaseViewController {
         return btn
     }()
 
+    /// Design: composite chip image `crop_frame_full` (相册导入).
     private lazy var galleryButton: UIButton = {
-        let btn = UIButton(type: .system)
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(named: "icon_photo_library") ?? UIImage(systemName: "photo.on.rectangle")
-        config.title = "相册导入"
-        config.imagePlacement = .top
-        config.imagePadding = 4
-        config.baseForegroundColor = .white
-        config.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4)
-        btn.configuration = config
-        btn.titleLabel?.font = .systemFont(ofSize: 12)
+        let btn = UIButton(type: .custom)
+        btn.setBackgroundImage(UIImage(named: "crop_frame_full"), for: .normal)
+        btn.adjustsImageWhenHighlighted = true
+        btn.imageView?.contentMode = .scaleAspectFit
         btn.addTarget(self, action: #selector(galleryTapped), for: .touchUpInside)
         return btn
     }()
@@ -129,12 +134,17 @@ final class ScanViewController: BaseViewController {
 
     private lazy var scanHintLabel: UILabel = {
         let label = UILabel()
-        label.text = "正对文件 贴近边角"
         label.textColor = .white
-        label.font = .systemFont(ofSize: 16, weight: .medium)
+        label.font = Self.scanHintFont
         label.textAlignment = .center
+        label.numberOfLines = 0
         return label
     }()
+
+    /// 苹方-简 常规体 14pt（设计稿）
+    private static var scanHintFont: UIFont {
+        UIFont(name: "PingFangSC-Regular", size: 14) ?? .systemFont(ofSize: 14, weight: .regular)
+    }
 
     // MARK: - Init
 
@@ -171,23 +181,31 @@ final class ScanViewController: BaseViewController {
         cameraManager.setTorch(on: false)
     }
 
-    override var prefersStatusBarHidden: Bool { true }
+    override var prefersStatusBarHidden: Bool { false }
+
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 
     // MARK: - Setup
 
     override func setupUI() {
         view.backgroundColor = .black
 
+        view.addSubview(topNavBarContainer)
+        topNavBarContainer.addSubview(backButton)
+        topNavBarContainer.addSubview(torchButton)
+        topNavBarContainer.addSubview(statusLabel)
+
         view.addSubview(previewContainerView)
         previewContainerView.layer.addSublayer(cameraManager.previewLayer)
+
+        scanOverlayContainerView = ScanOverlayContainerView(style: viewModel.scanType.scanOverlayStyle)
+        previewContainerView.addSubview(scanOverlayContainerView)
         previewContainerView.addSubview(overlayView)
 
-        view.addSubview(statusLabel)
-        view.addSubview(backButton)
-        view.addSubview(torchButton)
-        view.addSubview(scanHintLabel)
+        scanHintLabel.text = viewModel.scanType.scanHintText
 
         view.addSubview(bottomBar)
+        bottomBar.addSubview(scanHintLabel)
         bottomBar.addSubview(galleryButton)
         bottomBar.addSubview(shutterButton)
         bottomBar.addSubview(doneButton)
@@ -203,55 +221,80 @@ final class ScanViewController: BaseViewController {
     }
 
     override func setupConstraints() {
-        previewContainerView.snp.makeConstraints { make in
+        topNavBarContainer.snp.makeConstraints { make in
             make.top.leading.trailing.equalToSuperview()
+        }
+
+        backButton.snp.makeConstraints { make in
+            make.leading.equalToSuperview().offset(16)
+            make.top.equalTo(view.safeAreaLayoutGuide)
+            make.width.height.equalTo(44)
+        }
+
+        torchButton.snp.makeConstraints { make in
+            make.trailing.equalToSuperview().offset(-20)
+            make.centerY.equalTo(backButton)
+            make.width.height.equalTo(44)
+        }
+
+        statusLabel.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.centerY.equalTo(backButton)
+            make.height.equalTo(28)
+            make.leading.greaterThanOrEqualTo(backButton.snp.trailing).offset(8)
+            make.trailing.lessThanOrEqualTo(torchButton.snp.leading).offset(-8)
+            make.width.greaterThanOrEqualTo(120)
+        }
+
+        topNavBarContainer.snp.makeConstraints { make in
+            make.bottom.equalTo(backButton.snp.bottom).offset(8)
+        }
+
+        previewContainerView.snp.makeConstraints { make in
+            make.top.equalTo(topNavBarContainer.snp.bottom)
+            make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(bottomBar.snp.top)
+        }
+
+        scanOverlayContainerView.snp.makeConstraints { make in
+            make.edges.equalToSuperview()
         }
 
         overlayView.snp.makeConstraints { make in
             make.edges.equalToSuperview()
         }
 
-        statusLabel.snp.makeConstraints { make in
-            make.centerX.equalToSuperview()
-            make.top.equalTo(view.safeAreaLayoutGuide).offset(16)
-            make.height.equalTo(28)
-            make.width.greaterThanOrEqualTo(120)
-        }
-
-        backButton.snp.makeConstraints { make in
-            make.leading.equalToSuperview().offset(16)
-            make.centerY.equalTo(statusLabel)
-            make.width.height.equalTo(44)
-        }
-
-        torchButton.snp.makeConstraints { make in
-            make.trailing.equalToSuperview().offset(-20)
-            make.centerY.equalTo(statusLabel)
-            make.width.height.equalTo(44)
+        // Black bottom panel: hint + shutter + thumb/done (design); fixed height avoids preview/bottom ambiguity.
+        bottomBar.snp.makeConstraints { make in
+            make.leading.trailing.bottom.equalToSuperview()
+            make.height.equalTo(216)
         }
 
         scanHintLabel.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
-            make.bottom.equalTo(bottomBar.snp.top).offset(-20)
-        }
-
-        bottomBar.snp.makeConstraints { make in
-            make.leading.trailing.bottom.equalToSuperview()
-            make.height.equalTo(140)
+            make.top.equalToSuperview().offset(16)
+            make.leading.trailing.equalToSuperview().inset(24)
         }
 
         shutterButton.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
-            make.top.equalToSuperview().offset(20)
+            make.top.equalTo(scanHintLabel.snp.bottom).offset(16)
             make.width.height.equalTo(72)
+            make.bottom.equalTo(bottomBar.safeAreaLayoutGuide.snp.bottom).offset(-20)
         }
+
+        let galleryAspect: CGFloat = {
+            guard let img = UIImage(named: "crop_frame_full"), img.size.width > 0 else {
+                return 54.0 / 72.0
+            }
+            return img.size.height / img.size.width
+        }()
 
         galleryButton.snp.makeConstraints { make in
             make.leading.equalToSuperview().offset(24)
             make.centerY.equalTo(shutterButton)
             make.width.equalTo(72)
-            make.height.equalTo(54)
+            make.height.equalTo(72 * galleryAspect)
         }
 
         doneButton.snp.makeConstraints { make in
@@ -531,6 +574,41 @@ extension ScanViewController: PHPickerViewControllerDelegate {
             if !importedImages.isEmpty {
                 self?.showSuccess("已导入 \(importedImages.count) 张")
             }
+        }
+    }
+}
+
+// MARK: - Shutter artwork (white ring + black center)
+
+private enum ScanShutterButtonImageRenderer {
+
+    static func image(diameter: CGFloat, pressed: Bool = false) -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: diameter, height: diameter))
+        return renderer.image { _ in
+            let center = CGPoint(x: diameter / 2, y: diameter / 2)
+            let outerRadius = diameter / 2 - 2
+            let innerRadius = outerRadius - 6
+
+            let white = pressed ? UIColor.white.withAlphaComponent(0.75) : UIColor.white
+            white.setFill()
+            let outer = UIBezierPath(
+                arcCenter: center,
+                radius: outerRadius,
+                startAngle: 0,
+                endAngle: .pi * 2,
+                clockwise: true
+            )
+            outer.fill()
+
+            UIColor.black.setFill()
+            let inner = UIBezierPath(
+                arcCenter: center,
+                radius: max(innerRadius, 8),
+                startAngle: 0,
+                endAngle: .pi * 2,
+                clockwise: true
+            )
+            inner.fill()
         }
     }
 }

@@ -5,6 +5,14 @@
 
 import UIKit
 
+/// Visual overlay for the scan preview: document corner assets vs a single full-frame image.
+enum ScanOverlayStyle: Equatable {
+    /// Dark mask + `crop_frame_top` / `crop_frame_bottom` split assets.
+    case documentSplitCorners
+    /// Single asset (e.g. `frame_bank_card`) centered in the mask hole.
+    case singleFrame(assetName: String)
+}
+
 /// Scan mode determines which camera behavior and post-processing to apply.
 enum ScanType {
     case document
@@ -23,6 +31,31 @@ enum ScanType {
         switch self {
         case .document: return true
         case .bankCard, .businessLicense: return false
+        }
+    }
+
+    /// Preview mask + static frame artwork (distinct from Vision rectangle overlay).
+    var scanOverlayStyle: ScanOverlayStyle {
+        switch self {
+        case .document:
+            return .documentSplitCorners
+        case .bankCard:
+            return .singleFrame(assetName: "frame_bank_card")
+        case .businessLicense:
+            // Dedicated asset can replace this name when available.
+            return .singleFrame(assetName: "frame_bank_card")
+        }
+    }
+
+    /// Short hint above the bottom bar (design copy).
+    var scanHintText: String {
+        switch self {
+        case .document:
+            return "正对文件 贴近边角"
+        case .bankCard:
+            return "将银行卡置于取景框内"
+        case .businessLicense:
+            return "将营业执照置于取景框内"
         }
     }
 
