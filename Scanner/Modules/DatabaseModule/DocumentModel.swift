@@ -20,6 +20,8 @@ final class DocumentModel: TableCodable {
     var pageCount: Int = 0
     /// Relative path to the first page thumbnail image.
     var thumbnailPath: String = ""
+    /// JSON: `DocumentAssetManifest` — per-page filter indices and optional sandbox paths.
+    var assetManifestJSON: String = ""
 
     enum CodingKeys: String, CodingTableKey {
         typealias Root = DocumentModel
@@ -45,6 +47,7 @@ final class DocumentModel: TableCodable {
         case filePath
         case pageCount
         case thumbnailPath
+        case assetManifestJSON
     }
 
     var isAutoIncrement: Bool { return true }

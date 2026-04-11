@@ -21,6 +21,17 @@ enum AppConstants {
         static let scans = "Scans"
         static let pdfs = "PDFs"
         static let temp = "Temp"
+        /// Per-document edited page assets: `Documents/Scans/DocAssets/<id>/`.
+        static let docAssets = "DocAssets"
+    }
+
+    /// Product cap: max pages per single document (scan / edit / add photo).
+    enum DocumentLimits {
+        static let maxPagesPerDocument = 50
+    }
+
+    enum UserDefaultsKeys {
+        static let lastEditFilterIndex = "scanner.edit.lastFilterIndex"
     }
 
     enum ImageCompression {

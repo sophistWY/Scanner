@@ -30,11 +30,20 @@ final class FileHelper {
         documentsDirectory.appendingPathComponent(AppConstants.Directory.temp)
     }
 
+    /// `Documents/Scans/DocAssets/` — per-document edit assets (see `DocumentAssetStore`).
+    var docAssetsDirectory: URL {
+        scansDirectory.appendingPathComponent(AppConstants.Directory.docAssets)
+    }
+
     /// Create all required app directories on first launch.
     func ensureDirectoriesExist() {
-        [scansDirectory, pdfsDirectory, tempDirectory].forEach {
+        [scansDirectory, pdfsDirectory, tempDirectory, docAssetsDirectory].forEach {
             createDirectoryIfNeeded(at: $0)
         }
+    }
+
+    func ensureDirectoryExists(at url: URL) {
+        createDirectoryIfNeeded(at: url)
     }
 
     // MARK: - File Operations

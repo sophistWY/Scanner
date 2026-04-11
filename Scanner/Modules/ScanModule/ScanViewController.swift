@@ -328,9 +328,8 @@ final class ScanViewController: BaseViewController {
             self?.statusLabel.text = "  \(text)  "
         }
 
-        viewModel.canCapture.bind { [weak self] canCapture in
-            self?.shutterButton.isEnabled = canCapture
-            self?.shutterButton.alpha = canCapture ? 1.0 : 0.5
+        viewModel.canCapture.bind { [weak self] _ in
+            self?.updateShutterAvailability()
         }
 
         viewModel.isTorchOn.bind { [weak self] isOn in
@@ -347,6 +346,7 @@ final class ScanViewController: BaseViewController {
             doneButton.isHidden = count == 0
             thumbnailButton.isHidden = count == 0
             countBadge.isHidden = count == 0
+            self.updateShutterAvailability()
 
             if count == 0 {
                 thumbnailLoadingIndicator.stopAnimating()
@@ -378,6 +378,12 @@ final class ScanViewController: BaseViewController {
         }
     }
 
+    private func updateShutterAvailability() {
+        let can = viewModel.canCapture.value && !viewModel.isAtPageLimit
+        shutterButton.isEnabled = can
+        shutterButton.alpha = can ? 1.0 : 0.5
+    }
+
     // MARK: - Actions
 
     @objc private func shutterTapped() {
@@ -405,8 +411,16 @@ final class ScanViewController: BaseViewController {
     }
 
     @objc private func doneTapped() {
-        let images = viewModel.capturedImages.value
-        guard !images.isEmpty else { return }
+        let raw = viewModel.capturedImages.value
+        guard !raw.isEmpty else { return }
+        let maxP = AppConstants.DocumentLimits.maxPagesPerDocument
+        let images: [UIImage]
+        if raw.count > maxP {
+            images = Array(raw.prefix(maxP))
+            HUD.shared.showToast("单份文档最多 \(maxP) 页，已保留前 \(maxP) 页")
+        } else {
+            images = raw
+        }
         let name = "扫描文档_\(Date().formatted(style: .short))"
         guard let editDelegate = scanDelegate as? EditViewControllerDelegate else {
             scanDelegate?.scanViewController(self, didFinishWith: images)
@@ -454,7 +468,7 @@ final class ScanViewController: BaseViewController {
 
     private func presentPhotoPicker() {
         var config = PHPickerConfiguration()
-        config.selectionLimit = 20
+        config.selectionLimit = AppConstants.DocumentLimits.maxPagesPerDocument
         config.filter = .images
         let picker = PHPickerViewController(configuration: config)
         picker.delegate = self
@@ -535,19 +549,27 @@ extension ScanViewController: CameraManagerDelegate {
                             ImageCropper.perspectiveCorrectedImage(from: image, rectangle: rect) ?? image
                         }
                         DispatchQueue.main.async {
-                            self.viewModel.addCapturedImage(toAdd)
+                            if self.viewModel.addCapturedImage(toAdd) {
+                                // appended
+                            } else {
+                                HUD.shared.showToast("单份文档最多 \(AppConstants.DocumentLimits.maxPagesPerDocument) 页")
+                            }
                             self.viewModel.canCapture.value = true
                             self.hideLoading()
                         }
                     }
                 } else {
-                    viewModel.addCapturedImage(image)
+                    if !viewModel.addCapturedImage(image) {
+                        HUD.shared.showToast("单份文档最多 \(AppConstants.DocumentLimits.maxPagesPerDocument) 页")
+                    }
                     viewModel.canCapture.value = true
                     hideLoading()
                 }
             }
         } else {
-            viewModel.addCapturedImage(image)
+            if !viewModel.addCapturedImage(image) {
+                HUD.shared.showToast("单份文档最多 \(AppConstants.DocumentLimits.maxPagesPerDocument) 页")
+            }
             viewModel.canCapture.value = true
             hideLoading()
         }
@@ -601,14 +623,23 @@ extension ScanViewController: PHPickerViewControllerDelegate {
         }
 
         group.notify(queue: .main) { [weak self] in
-            self?.hideLoading()
+            guard let self else { return }
+            self.hideLoading()
+            let maxP = AppConstants.DocumentLimits.maxPagesPerDocument
+            var added = 0
             for image in importedImages {
+                guard !self.viewModel.isAtPageLimit else { break }
                 autoreleasepool {
-                    self?.viewModel.addCapturedImage(image.fixOrientation())
+                    if self.viewModel.addCapturedImage(image.fixOrientation()) {
+                        added += 1
+                    }
                 }
             }
-            if !importedImages.isEmpty {
-                self?.showSuccess("已导入 \(importedImages.count) 张")
+            if added < importedImages.count, !importedImages.isEmpty {
+                HUD.shared.showToast("已达 \(maxP) 页上限，多余照片未添加")
+            }
+            if added > 0 {
+                self.showSuccess("已导入 \(added) 张")
             }
         }
     }

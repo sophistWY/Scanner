@@ -19,6 +19,7 @@ final class WCDBManager {
         let dbPath = FileHelper.shared.documentsDirectory.appendingPathComponent("Scanner.db").path
         database = Database(withPath: dbPath)
         createTables()
+        migrateAssetManifestJSONColumnIfNeeded()
     }
 
     // MARK: - Table Setup
@@ -29,6 +30,22 @@ final class WCDBManager {
             Logger.shared.log("Database tables created", level: .info)
         } catch {
             Logger.shared.log("Database creation error: \(error.localizedDescription)", level: .error)
+        }
+    }
+
+    /// Adds `assetManifestJSON` for existing installs (TableCodable does not auto-ALTER).
+    private func migrateAssetManifestJSONColumnIfNeeded() {
+        let key = "scanner.db.migrated.assetManifestJSON.v1"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        defer { UserDefaults.standard.set(true, forKey: key) }
+        do {
+            let col = ColumnDef(with: Column(named: "assetManifestJSON"), and: .text)
+                .makeDefault(to: .text(""))
+            let stmt = StatementAlterTable().alter(table: documentTable).addColumn(with: col)
+            try database.exec(stmt)
+            Logger.shared.log("Migrated documents.assetManifestJSON", level: .info)
+        } catch {
+            Logger.shared.log("assetManifestJSON column migration: \(error.localizedDescription)", level: .debug)
         }
     }
 
@@ -96,18 +113,29 @@ final class WCDBManager {
     }
 
     @discardableResult
-    func updateDocumentContent(id: Int64, filePath: String, thumbnailPath: String, pageCount: Int) -> Bool {
+    func updateDocumentContent(
+        id: Int64,
+        name: String,
+        filePath: String,
+        thumbnailPath: String,
+        pageCount: Int,
+        assetManifestJSON: String
+    ) -> Bool {
         do {
             let update = DocumentModel()
+            update.name = name
             update.filePath = filePath
             update.thumbnailPath = thumbnailPath
             update.pageCount = pageCount
+            update.assetManifestJSON = assetManifestJSON
             update.updateTime = Date()
             try database.update(
                 table: documentTable,
-                on: DocumentModel.Properties.filePath,
+                on: DocumentModel.Properties.name,
+                    DocumentModel.Properties.filePath,
                     DocumentModel.Properties.thumbnailPath,
                     DocumentModel.Properties.pageCount,
+                    DocumentModel.Properties.assetManifestJSON,
                     DocumentModel.Properties.updateTime,
                 with: update,
                 where: DocumentModel.Properties.id == id
@@ -115,6 +143,26 @@ final class WCDBManager {
             return true
         } catch {
             Logger.shared.log("Update content error: \(error.localizedDescription)", level: .error)
+            return false
+        }
+    }
+
+    /// Low-frequency manifest-only update (no PDF/thumbnail change).
+    @discardableResult
+    func updateDocumentAssetManifest(id: Int64, assetManifestJSON: String) -> Bool {
+        do {
+            let update = DocumentModel()
+            update.assetManifestJSON = assetManifestJSON
+            update.updateTime = Date()
+            try database.update(
+                table: documentTable,
+                on: DocumentModel.Properties.assetManifestJSON, DocumentModel.Properties.updateTime,
+                with: update,
+                where: DocumentModel.Properties.id == id
+            )
+            return true
+        } catch {
+            Logger.shared.log("Update manifest error: \(error.localizedDescription)", level: .error)
             return false
         }
     }

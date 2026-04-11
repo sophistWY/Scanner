@@ -3,11 +3,11 @@
 //  Scanner
 //
 //  Orchestrates document lifecycle: DB records, PDF generation,
-//  thumbnail management, and file cleanup.
-//  Centralizes logic previously scattered across ViewModels and VCs.
+//  thumbnail management, DocAssets sandbox, and file cleanup.
 //
 
 import UIKit
+import PDFKit
 
 final class DocumentService {
 
@@ -16,6 +16,7 @@ final class DocumentService {
     private let db = WCDBManager.shared
     private let file = FileHelper.shared
     private let pdf = PDFGenerator.shared
+    private let assets = DocumentAssetStore.shared
 
     private init() {}
 
@@ -29,20 +30,23 @@ final class DocumentService {
     func createDocument(
         name: String,
         images: [UIImage],
+        assetManifestJSON: String? = nil,
         completion: @escaping (Result<CreateResult, DocumentServiceError>) -> Void
     ) {
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             let timestamp = String.uniqueFileName(prefix: "doc", extension: nil)
             let pdfRelPath = "\(AppConstants.Directory.pdfs)/\(timestamp).pdf"
             let thumbRelPath = "\(AppConstants.Directory.scans)/\(timestamp)_thumb.jpg"
-            let pdfURL = file.documentsDirectory.appendingPathComponent(pdfRelPath)
+            let finalPDFURL = file.documentsDirectory.appendingPathComponent(pdfRelPath)
 
-            guard pdf.generatePDF(from: images, outputURL: pdfURL) else {
+            guard self.writePDFStaged(images: images, finalURL: finalPDFURL) else {
                 DispatchQueue.main.async { completion(.failure(.pdfGenerationFailed)) }
                 return
             }
 
-            saveThumbnail(from: images.first, timestamp: timestamp)
+            self.saveThumbnail(from: images.first, timestamp: timestamp)
+
+            let manifestJSON = assetManifestJSON ?? DocumentAssetManifest.empty(pageCount: images.count).jsonString()
 
             let doc = DocumentModel()
             doc.name = name
@@ -51,9 +55,10 @@ final class DocumentService {
             doc.filePath = pdfRelPath
             doc.pageCount = images.count
             doc.thumbnailPath = thumbRelPath
+            doc.assetManifestJSON = manifestJSON
 
             guard db.insertDocument(doc) else {
-                file.deleteFile(at: pdfURL)
+                file.deleteFile(at: finalPDFURL)
                 let thumbURL = file.documentsDirectory.appendingPathComponent(thumbRelPath)
                 file.deleteFile(at: thumbURL)
                 Logger.shared.log("Rolled back orphan files after failed DB insert", level: .warning)
@@ -61,7 +66,11 @@ final class DocumentService {
                 return
             }
 
-            let result = CreateResult(document: doc, pdfURL: pdfURL)
+            if doc.lastInsertedRowID > 0 {
+                doc.id = doc.lastInsertedRowID
+            }
+
+            let result = CreateResult(document: doc, pdfURL: finalPDFURL)
             DispatchQueue.main.async { completion(.success(result)) }
         }
     }
@@ -72,6 +81,7 @@ final class DocumentService {
         id: Int64,
         name: String,
         images: [UIImage],
+        assetManifestJSON: String? = nil,
         completion: @escaping (Result<Void, DocumentServiceError>) -> Void
     ) {
         DispatchQueue.global(qos: .userInitiated).async { [self] in
@@ -83,25 +93,31 @@ final class DocumentService {
             let timestamp = String.uniqueFileName(prefix: "doc", extension: nil)
             let pdfRelPath = "\(AppConstants.Directory.pdfs)/\(timestamp).pdf"
             let thumbRelPath = "\(AppConstants.Directory.scans)/\(timestamp)_thumb.jpg"
-            let pdfURL = file.documentsDirectory.appendingPathComponent(pdfRelPath)
+            let finalPDFURL = file.documentsDirectory.appendingPathComponent(pdfRelPath)
 
-            guard pdf.generatePDF(from: images, outputURL: pdfURL) else {
+            guard self.writePDFStaged(images: images, finalURL: finalPDFURL) else {
                 DispatchQueue.main.async { completion(.failure(.pdfGenerationFailed)) }
                 return
             }
 
             saveThumbnail(from: images.first, timestamp: timestamp)
 
+            let manifestJSON = assetManifestJSON ?? oldDoc.assetManifestJSON
+
             let success = db.updateDocumentContent(
-                id: id, filePath: pdfRelPath,
-                thumbnailPath: thumbRelPath, pageCount: images.count
+                id: id,
+                name: name,
+                filePath: pdfRelPath,
+                thumbnailPath: thumbRelPath,
+                pageCount: images.count,
+                assetManifestJSON: manifestJSON
             )
 
             if success {
                 file.deleteFile(at: oldDoc.pdfURL)
                 file.deleteFile(at: oldDoc.thumbnailURL)
             } else {
-                file.deleteFile(at: pdfURL)
+                file.deleteFile(at: finalPDFURL)
             }
 
             DispatchQueue.main.async {
@@ -129,6 +145,7 @@ final class DocumentService {
     func deleteDocument(_ document: DocumentModel) -> Bool {
         file.deleteFile(at: document.pdfURL)
         file.deleteFile(at: document.thumbnailURL)
+        assets.deleteDocumentFolder(folderId: "\(document.id)")
         return db.deleteDocument(byId: document.id)
     }
 
@@ -139,6 +156,35 @@ final class DocumentService {
     }
 
     // MARK: - Private
+
+    /// Writes PDF to Temp, validates, then moves into `PDFs/`.
+    private func writePDFStaged(images: [UIImage], finalURL: URL) -> Bool {
+        let tempName = "pdf_\(UUID().uuidString).tmp.pdf"
+        let tempURL = file.tempDirectory.appendingPathComponent(tempName)
+        file.ensureDirectoryExists(at: file.tempDirectory)
+
+        guard pdf.generatePDF(from: images, outputURL: tempURL) else {
+            try? FileManager.default.removeItem(at: tempURL)
+            return false
+        }
+        guard PDFDocument(url: tempURL) != nil else {
+            try? FileManager.default.removeItem(at: tempURL)
+            return false
+        }
+
+        if file.fileExists(at: finalURL) {
+            file.deleteFile(at: finalURL)
+        }
+
+        do {
+            try FileManager.default.moveItem(at: tempURL, to: finalURL)
+            return true
+        } catch {
+            Logger.shared.log("PDF staged move failed: \(error.localizedDescription)", level: .error)
+            try? FileManager.default.removeItem(at: tempURL)
+            return false
+        }
+    }
 
     private func saveThumbnail(from image: UIImage?, timestamp: String) {
         guard let image else { return }

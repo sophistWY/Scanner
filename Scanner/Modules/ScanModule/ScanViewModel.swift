@@ -101,7 +101,15 @@ final class ScanViewModel: BaseViewModel {
 
     // MARK: - Actions
 
-    func addCapturedImage(_ image: UIImage) {
+    /// Single-document page cap (aligned with edit / export).
+    var isAtPageLimit: Bool {
+        capturedImages.value.count >= AppConstants.DocumentLimits.maxPagesPerDocument
+    }
+
+    /// Returns `false` when the session already has the maximum number of pages.
+    @discardableResult
+    func addCapturedImage(_ image: UIImage) -> Bool {
+        guard !isAtPageLimit else { return false }
         let normalized = autoreleasepool {
             image.constrainedToMaxPixelLength(AppConstants.ScanImage.maxPixelLength)
         }
@@ -109,6 +117,7 @@ final class ScanViewModel: BaseViewModel {
         images.append(normalized)
         capturedImages.value = images
         updateStatus()
+        return true
     }
 
     func removeImage(at index: Int) {

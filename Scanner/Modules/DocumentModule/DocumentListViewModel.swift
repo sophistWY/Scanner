@@ -60,7 +60,8 @@ final class DocumentListViewModel: BaseViewModel {
     }
 
     func updateDocument(id: Int64, name: String, images: [UIImage], completion: @escaping (Bool) -> Void) {
-        service.updateDocumentContent(id: id, name: name, images: images) { [weak self] result in
+        let manifestJSON = DocumentAssetManifest.empty(pageCount: images.count).jsonString()
+        service.updateDocumentContent(id: id, name: name, images: images, assetManifestJSON: manifestJSON) { [weak self] result in
             switch result {
             case .success:
                 self?.loadDocuments()
@@ -72,7 +73,8 @@ final class DocumentListViewModel: BaseViewModel {
     }
 
     func createDocument(name: String, images: [UIImage], completion: @escaping (Bool) -> Void) {
-        service.createDocument(name: name, images: images) { [weak self] result in
+        let manifestJSON = DocumentAssetManifest.empty(pageCount: images.count).jsonString()
+        service.createDocument(name: name, images: images, assetManifestJSON: manifestJSON) { [weak self] result in
             switch result {
             case .success:
                 self?.loadDocuments()

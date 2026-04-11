@@ -299,6 +299,10 @@ extension DocumentListViewController: EditViewControllerDelegate {
         viewModel.loadDocuments()
     }
 
+    func editViewController(_ vc: EditViewController, didPersistDocument document: DocumentModel) {
+        viewModel.loadDocuments()
+    }
+
     func editViewControllerDidCancel(_ vc: EditViewController) {}
 }
 

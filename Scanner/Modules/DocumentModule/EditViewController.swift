@@ -18,10 +18,13 @@ protocol EditViewControllerDelegate: AnyObject {
     func editViewController(_ vc: EditViewController, didFinishWith images: [UIImage])
     func editViewControllerDidCancel(_ vc: EditViewController)
     func editViewControllerRequestRetake(_ vc: EditViewController)
+    /// Called when a document is first created or updated by auto-save (not only export).
+    func editViewController(_ vc: EditViewController, didPersistDocument document: DocumentModel)
 }
 
 extension EditViewControllerDelegate {
     func editViewControllerRequestRetake(_ vc: EditViewController) {}
+    func editViewController(_ vc: EditViewController, didPersistDocument document: DocumentModel) {}
 }
 
 final class EditViewController: BaseViewController {
@@ -71,6 +74,15 @@ final class EditViewController: BaseViewController {
     private var appliedFilterIndex: [Int]
     private var hasExportedSuccessfully = false
     private var isExporting = false
+
+    /// Per-page generation token to drop stale async completions (OpenCV / cloud).
+    private var pageGenerations: [Int] = []
+    /// Sandbox folder when `documentId == nil`: `pending_<uuid>`.
+    private var pendingAssetFolderId: String = ""
+    private var editDirty = false
+    private var backgroundObserver: NSObjectProtocol?
+    /// For existing documents: used to cap add-photo at 50 pages.
+    private var sourceDocumentPageCount: Int?
 
     /// 从文档列表进入时先 push，再在后台解码 PDF；非该路径为 `nil`。
     private var pendingPDFURL: URL?
@@ -217,7 +229,8 @@ final class EditViewController: BaseViewController {
     // MARK: - Init
 
     init(images: [UIImage], documentName: String, documentId: Int64? = nil, sourceScanType: ScanType? = nil) {
-        let buffers = Self.makeImageBuffers(from: images)
+        let defFilter = Self.defaultFilterIndexFromUserDefaults()
+        let buffers = Self.makeImageBuffers(from: images, defaultFilterIndex: defFilter)
         self.images = buffers.images
         self.originalJPEGs = buffers.originalJPEGs
         self.appliedFilterIndex = buffers.appliedFilterIndex
@@ -227,6 +240,9 @@ final class EditViewController: BaseViewController {
         self.sourceScanType = sourceScanType
         self.pendingPDFURL = nil
         self.showsRetakeButton = true
+        self.pendingAssetFolderId = "pending_\(UUID().uuidString)"
+        self.pageGenerations = Array(repeating: 0, count: buffers.images.count)
+        self.sourceDocumentPageCount = nil
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -241,13 +257,22 @@ final class EditViewController: BaseViewController {
         self.sourceScanType = nil
         self.pendingPDFURL = document.pdfURL
         self.showsRetakeButton = false
+        self.pendingAssetFolderId = ""
+        self.pageGenerations = []
+        self.sourceDocumentPageCount = document.pageCount
         super.init(nibName: nil, bundle: nil)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    private static func makeImageBuffers(from images: [UIImage]) -> (images: [UIImage], originalJPEGs: [Data], appliedFilterIndex: [Int]) {
+    private static func defaultFilterIndexFromUserDefaults() -> Int {
+        let raw = UserDefaults.standard.integer(forKey: AppConstants.UserDefaultsKeys.lastEditFilterIndex)
+        let maxIdx = max(0, editFilterTypes.count - 1)
+        return min(max(raw, 0), maxIdx)
+    }
+
+    private static func makeImageBuffers(from images: [UIImage], defaultFilterIndex: Int = 0) -> (images: [UIImage], originalJPEGs: [Data], appliedFilterIndex: [Int]) {
         var builtImages: [UIImage] = []
         var builtJPEGs: [Data] = []
         builtImages.reserveCapacity(images.count)
@@ -261,12 +286,13 @@ final class EditViewController: BaseViewController {
                 builtImages.append(UIImage(data: data) ?? n)
             }
         }
-        let applied = Array(repeating: 0, count: builtImages.count)
+        let applied = Array(repeating: defaultFilterIndex, count: builtImages.count)
         return (builtImages, builtJPEGs, applied)
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        registerBackgroundFlushObserver()
         guard let url = pendingPDFURL else { return }
         pendingPDFURL = nil
         setEditChromeInteractionEnabled(false)
@@ -308,15 +334,197 @@ final class EditViewController: BaseViewController {
     }
 
     private func applyLoadedDocumentImages(_ rawImages: [UIImage]) {
-        let buffers = Self.makeImageBuffers(from: rawImages)
+        let buffers = Self.makeImageBuffers(from: rawImages, defaultFilterIndex: 0)
         images = buffers.images
         originalJPEGs = buffers.originalJPEGs
         appliedFilterIndex = buffers.appliedFilterIndex
         cloudSmartOptimizeJPEG = Array(repeating: nil, count: buffers.images.count)
+        pageGenerations = Array(repeating: 0, count: buffers.images.count)
+
+        if let id = documentId,
+           let doc = DocumentService.shared.document(byId: id),
+           let manifest = DocumentAssetManifest.parse(doc.assetManifestJSON),
+           manifest.appliedFilterIndices.count == images.count {
+            appliedFilterIndex = manifest.appliedFilterIndices
+        }
+
+        hydratePersistedStateAfterLoadingFromPDF()
+
         currentPage = 0
         collectionView.reloadData()
         updatePagePagerAppearance()
         generateFilterThumbnails()
+        updateFilterSelection()
+        updateAddPhotoAvailability()
+    }
+
+    /// 冷启动：从沙盒恢复智能优化底图与各滤镜成品；锐化/灰度以智能优化结果为输入源。
+    private func hydratePersistedStateAfterLoadingFromPDF() {
+        guard images.count == cloudSmartOptimizeJPEG.count else { return }
+        let smartIdx = Self.smartOptimizeFilterIndex
+        let q = AppConstants.ScanImage.originalJPEGQuality
+        guard let folder = assetFolderId() else { return }
+
+        for p in 0..<images.count {
+            if let data = DocumentAssetStore.shared.readFilterJPEGDataIfPresent(folderId: folder, page: p, filterSlot: smartIdx), !data.isEmpty {
+                cloudSmartOptimizeJPEG[p] = data
+            }
+        }
+
+        for p in 0..<images.count {
+            let idx = appliedFilterIndex[safe: p] ?? 0
+            if let data = DocumentAssetStore.shared.readFilterJPEGDataIfPresent(folderId: folder, page: p, filterSlot: idx), !data.isEmpty,
+               let img = UIImage(data: data) {
+                images[p] = img
+                if idx == smartIdx { cloudSmartOptimizeJPEG[p] = data }
+                continue
+            }
+
+            if idx == smartIdx {
+                if cloudSmartOptimizeJPEG[p] == nil,
+                   let data = images[p].jpegData(compressionQuality: q) ?? images[p].pngData() {
+                    cloudSmartOptimizeJPEG[p] = data
+                }
+                if let d = cloudSmartOptimizeJPEG[p], let img = UIImage(data: d) {
+                    images[p] = img
+                }
+                continue
+            }
+
+            if idx == 2 || idx == 3 {
+                guard let d = cloudSmartOptimizeJPEG[p], let base = UIImage(data: d) else { continue }
+                let filterType = Self.editFilterTypes[idx]
+                let pageCopy = p
+                EditOpenCVQueue.shared.async { [weak self] in
+                    let result = autoreleasepool {
+                        ImageFilterManager.shared.apply(filterType, to: base)
+                    }
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, pageCopy < self.images.count else { return }
+                        self.images[pageCopy] = result
+                        self.collectionView.reloadItems(at: [IndexPath(item: pageCopy, section: 0)])
+                    }
+                }
+            }
+        }
+    }
+
+    /// 锐化 / 灰度：在智能优化结果上再套本地 OpenCV；无云端结果时退化为原图基准。
+    private func imageForOpenCVChainBase(page: Int) -> UIImage? {
+        guard page >= 0, page < cloudSmartOptimizeJPEG.count, page < originalJPEGs.count else { return nil }
+        if let d = cloudSmartOptimizeJPEG[page], let img = UIImage(data: d) { return img }
+        return UIImage(data: originalJPEGs[page])
+    }
+
+    private func registerBackgroundFlushObserver() {
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.flushPersistReason(reason: "background")
+        }
+    }
+
+    deinit {
+        if let backgroundObserver {
+            NotificationCenter.default.removeObserver(backgroundObserver)
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if isMovingFromParent || isBeingDismissed {
+            flushPersistReason(reason: "leave")
+        }
+    }
+
+    private func assetFolderId() -> String? {
+        if let id = documentId { return "\(id)" }
+        if !pendingAssetFolderId.isEmpty { return pendingAssetFolderId }
+        return nil
+    }
+
+    private func buildManifestJSON() -> String {
+        DocumentAssetManifest(appliedFilterIndices: appliedFilterIndex).jsonString()
+    }
+
+    private func updateAddPhotoAvailability() {
+        let maxP = AppConstants.DocumentLimits.maxPagesPerDocument
+        if let src = sourceDocumentPageCount, src > maxP {
+            addPhotoButton.isEnabled = false
+            addPhotoButton.alpha = 0.45
+            return
+        }
+        let atCap = images.count >= maxP
+        addPhotoButton.isEnabled = !atCap
+        addPhotoButton.alpha = atCap ? 0.45 : 1
+    }
+
+    private func markEditDirtyAndPersistManifest() {
+        editDirty = true
+        guard let id = documentId else { return }
+        let manifest = DocumentAssetManifest(appliedFilterIndices: appliedFilterIndex)
+        DocumentEditPersistence.shared.scheduleManifestCommit(documentId: id, manifest: manifest)
+    }
+
+    private func flushPersistReason(reason _: String) {
+        guard editDirty, !isExporting else { return }
+        let manifestJSON = buildManifestJSON()
+        if let id = documentId {
+            DocumentEditPersistence.shared.flushManifestCommit(
+                documentId: id,
+                manifest: DocumentAssetManifest(appliedFilterIndices: appliedFilterIndex)
+            )
+            DocumentService.shared.updateDocumentContent(
+                id: id,
+                name: documentName,
+                images: images,
+                assetManifestJSON: manifestJSON
+            ) { [weak self] result in
+                guard let self else { return }
+                if case .success = result {
+                    self.editDirty = false
+                    if let doc = DocumentService.shared.document(byId: id) {
+                        self.editDelegate?.editViewController(self, didPersistDocument: doc)
+                    }
+                }
+            }
+            return
+        }
+
+        DocumentService.shared.createDocument(
+            name: documentName,
+            images: images,
+            assetManifestJSON: manifestJSON
+        ) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let created):
+                self.documentId = created.document.id
+                self.editDirty = false
+                DocumentAssetStore.shared.renamePendingFolder(pendingId: self.pendingAssetFolderId, toDocumentId: created.document.id)
+                self.pendingAssetFolderId = ""
+                self.editDelegate?.editViewController(self, didPersistDocument: created.document)
+            case .failure:
+                break
+            }
+        }
+    }
+
+    private func persistSandboxAfterEdit(page: Int) {
+        guard let folder = assetFolderId(), page < originalJPEGs.count, page < images.count else { return }
+        let idx = appliedFilterIndex[safe: page] ?? 0
+        DocumentAssetStore.shared.writeBaselineJPEG(folderId: folder, page: page, jpegData: originalJPEGs[page]) { _ in }
+        let q = AppConstants.ScanImage.originalJPEGQuality
+        if let data = images[page].jpegData(compressionQuality: q) ?? images[page].pngData() {
+            DocumentAssetStore.shared.writeFilterJPEG(folderId: folder, page: page, filterSlot: idx, jpegData: data) { _ in }
+        }
+    }
+
+    private func bumpGeneration(for page: Int) {
+        guard page >= 0, page < pageGenerations.count else { return }
+        pageGenerations[page] += 1
     }
 
     // MARK: - Setup
@@ -351,6 +559,7 @@ final class EditViewController: BaseViewController {
         currentPage = 0
         updatePagePagerAppearance()
         applyLightNavigationBarAppearance()
+        updateAddPhotoAvailability()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -582,8 +791,13 @@ final class EditViewController: BaseViewController {
             navigationController?.popViewController(animated: true)
             return
         }
+        if !editDirty {
+            editDelegate?.editViewControllerDidCancel(self)
+            navigationController?.popViewController(animated: true)
+            return
+        }
         showConfirmAlert(
-            title: "未导出内容将丢失",
+            title: "未保存的编辑将丢失",
             message: "确认返回吗？",
             confirmTitle: "返回",
             confirmStyle: .destructive
@@ -603,6 +817,10 @@ final class EditViewController: BaseViewController {
             let q = AppConstants.ScanImage.originalJPEGQuality
             let data = n.jpegData(compressionQuality: q) ?? n.pngData() ?? Data()
             let page = self.currentPage
+            self.bumpGeneration(for: page)
+            if let fid = self.assetFolderId() {
+                DocumentAssetStore.shared.invalidatePage(folderId: fid, page: page, completion: nil)
+            }
             self.originalJPEGs[page] = data
             self.images[page] = UIImage(data: data) ?? n
             self.cloudSmartOptimizeJPEG[page] = nil
@@ -610,6 +828,7 @@ final class EditViewController: BaseViewController {
             self.reapplyCurrentFilterForPage(page)
             self.updateFilterSelection()
             self.generateFilterThumbnails()
+            self.markEditDirtyAndPersistManifest()
         }
         let nav = BaseNavigationController(rootViewController: cropVC)
         nav.modalPresentationStyle = .fullScreen
@@ -621,6 +840,11 @@ final class EditViewController: BaseViewController {
     }
 
     @objc private func addPhotoTapped() {
+        let maxP = AppConstants.DocumentLimits.maxPagesPerDocument
+        guard images.count < maxP else {
+            showAlert(title: "提示", message: "单份文档最多 \(maxP) 页")
+            return
+        }
         var config = PHPickerConfiguration(photoLibrary: .shared())
         config.filter = .images
         config.selectionLimit = 1
@@ -645,8 +869,13 @@ final class EditViewController: BaseViewController {
             self.originalJPEGs.remove(at: self.currentPage)
             self.appliedFilterIndex.remove(at: self.currentPage)
             self.cloudSmartOptimizeJPEG.remove(at: self.currentPage)
+            if self.currentPage < self.pageGenerations.count {
+                self.pageGenerations.remove(at: self.currentPage)
+            }
             self.currentPage = min(self.currentPage, self.images.count - 1)
             self.collectionView.reloadData()
+            self.markEditDirtyAndPersistManifest()
+            self.updateAddPhotoAvailability()
         }
     }
 
@@ -658,12 +887,16 @@ final class EditViewController: BaseViewController {
 
         appliedFilterIndex[currentPage] = idx
         updateFilterSelection()
+        UserDefaults.standard.set(idx, forKey: AppConstants.UserDefaultsKeys.lastEditFilterIndex)
 
         if filters[idx] == .original {
             if let restored = UIImage(data: originalJPEGs[currentPage]) {
                 images[currentPage] = restored
             }
             collectionView.reloadItems(at: [IndexPath(item: currentPage, section: 0)])
+            editDirty = true
+            persistSandboxAfterEdit(page: currentPage)
+            markEditDirtyAndPersistManifest()
             return
         }
 
@@ -672,37 +905,49 @@ final class EditViewController: BaseViewController {
             return
         }
 
-        guard let original = UIImage(data: originalJPEGs[currentPage]) else { return }
+        guard let base = imageForOpenCVChainBase(page: currentPage) else { return }
 
         let filterType = filters[idx]
         let page = currentPage
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        bumpGeneration(for: page)
+        let gen = pageGenerations[page]
+
+        EditOpenCVQueue.shared.async { [weak self] in
             let result = autoreleasepool {
-                ImageFilterManager.shared.apply(filterType, to: original)
+                ImageFilterManager.shared.apply(filterType, to: base)
             }
             DispatchQueue.main.async {
-                guard let self, page == self.currentPage else { return }
+                guard let self else { return }
+                guard page < self.pageGenerations.count, gen == self.pageGenerations[page] else { return }
                 self.images[page] = result
                 self.collectionView.reloadItems(at: [IndexPath(item: page, section: 0)])
                 self.updateFilterSelection()
+                self.editDirty = true
+                self.persistSandboxAfterEdit(page: page)
+                self.markEditDirtyAndPersistManifest()
             }
         }
     }
 
     /// 云端「智能优化」：有缓存则直接套用；否则上传 → 轮询 → 下载并写入缓存（裁剪后缓存已清空）。
-    private func applySmartOptimizeFilter() {
-        let page = currentPage
+    /// - Parameter targetPage: 指定页码；`nil` 时使用当前 `currentPage`（点选滤镜条场景）。
+    private func applySmartOptimizeFilter(forPage targetPage: Int? = nil) {
+        let page = targetPage ?? currentPage
         if page < cloudSmartOptimizeJPEG.count,
            let data = cloudSmartOptimizeJPEG[page],
            let img = UIImage(data: data) {
             images[page] = img
             collectionView.reloadItems(at: [IndexPath(item: page, section: 0)])
             updateFilterSelection()
+            editDirty = true
+            persistSandboxAfterEdit(page: page)
+            markEditDirtyAndPersistManifest()
             return
         }
 
         guard let original = UIImage(data: originalJPEGs[page]) else { return }
 
+        bumpGeneration(for: page)
         smartOptimizeProcessingPage = page
         let ip = IndexPath(item: page, section: 0)
         UIView.performWithoutAnimation {
@@ -718,6 +963,7 @@ final class EditViewController: BaseViewController {
             }
         }
 
+        let gen = pageGenerations[page]
         DocumentSmartOptimizeService.optimize(
             image: original,
             pdftype: sourceScanType?.stsPdfType
@@ -725,6 +971,7 @@ final class EditViewController: BaseViewController {
             guard let self else { return }
             self.smartOptimizeProcessingPage = nil
             self.setEditChromeInteractionEnabled(true)
+            guard page < self.pageGenerations.count, gen == self.pageGenerations[page] else { return }
             switch result {
             case .success(let img):
                 let q = AppConstants.ScanImage.originalJPEGQuality
@@ -735,6 +982,9 @@ final class EditViewController: BaseViewController {
                 self.collectionView.reloadItems(at: [IndexPath(item: page, section: 0)])
                 self.updateFilterSelection()
                 self.generateFilterThumbnails()
+                self.editDirty = true
+                self.persistSandboxAfterEdit(page: page)
+                self.markEditDirtyAndPersistManifest()
             case .failure(let error):
                 let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 self.showError(message)
@@ -763,20 +1013,26 @@ final class EditViewController: BaseViewController {
         }
 
         if idx == Self.smartOptimizeFilterIndex {
-            applySmartOptimizeFilter()
+            applySmartOptimizeFilter(forPage: page)
             return
         }
 
-        guard let original = UIImage(data: originalJPEGs[page]) else { return }
+        guard let base = imageForOpenCVChainBase(page: page) else { return }
         let filterType = filters[idx]
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        bumpGeneration(for: page)
+        let gen = pageGenerations[page]
+        EditOpenCVQueue.shared.async { [weak self] in
             let result = autoreleasepool {
-                ImageFilterManager.shared.apply(filterType, to: original)
+                ImageFilterManager.shared.apply(filterType, to: base)
             }
             DispatchQueue.main.async {
                 guard let self, page < self.images.count else { return }
+                guard page < self.pageGenerations.count, gen == self.pageGenerations[page] else { return }
                 self.images[page] = result
                 self.collectionView.reloadItems(at: [IndexPath(item: page, section: 0)])
+                self.editDirty = true
+                self.persistSandboxAfterEdit(page: page)
+                self.markEditDirtyAndPersistManifest()
             }
         }
     }
@@ -789,13 +1045,20 @@ final class EditViewController: BaseViewController {
         exportButton.alpha = 0.7
         showLoading(message: "导出中...")
 
+        let manifestJSON = buildManifestJSON()
         if let id = documentId {
-            DocumentService.shared.updateDocumentContent(id: id, name: documentName, images: images) { [weak self] result in
+            DocumentService.shared.updateDocumentContent(
+                id: id,
+                name: documentName,
+                images: images,
+                assetManifestJSON: manifestJSON
+            ) { [weak self] result in
                 guard let self else { return }
                 self.finishExportLoadingState()
                 switch result {
                 case .success:
                     self.hasExportedSuccessfully = true
+                    self.editDirty = false
                     guard let doc = DocumentService.shared.document(byId: id) else {
                         self.showError("无法读取文档")
                         return
@@ -809,13 +1072,20 @@ final class EditViewController: BaseViewController {
             return
         }
 
-        DocumentService.shared.createDocument(name: documentName, images: images) { [weak self] result in
+        DocumentService.shared.createDocument(
+            name: documentName,
+            images: images,
+            assetManifestJSON: manifestJSON
+        ) { [weak self] result in
             guard let self else { return }
             self.finishExportLoadingState()
             switch result {
             case .success(let created):
                 self.hasExportedSuccessfully = true
+                self.editDirty = false
                 self.documentId = created.document.id
+                DocumentAssetStore.shared.renamePendingFolder(pendingId: self.pendingAssetFolderId, toDocumentId: created.document.id)
+                self.pendingAssetFolderId = ""
                 self.editDelegate?.editViewController(self, didFinishWith: self.images)
                 self.navigationController?.pushViewController(ExportResultViewController(document: created.document), animated: true)
             case .failure(let error):
@@ -845,18 +1115,44 @@ extension EditViewController: PHPickerViewControllerDelegate {
         provider.loadObject(ofClass: UIImage.self) { [weak self] obj, _ in
             DispatchQueue.main.async {
                 guard let self, let img = obj as? UIImage else { return }
+                let maxP = AppConstants.DocumentLimits.maxPagesPerDocument
+                guard self.images.count < maxP else {
+                    self.showAlert(title: "提示", message: "单份文档最多 \(maxP) 页")
+                    return
+                }
                 let n = img.constrainedToMaxPixelLength(AppConstants.ScanImage.maxPixelLength)
                 let q = AppConstants.ScanImage.originalJPEGQuality
                 guard let data = n.jpegData(compressionQuality: q) ?? n.pngData() else { return }
                 let decoded = UIImage(data: data) ?? n
+
                 self.images.append(decoded)
                 self.originalJPEGs.append(data)
-                self.appliedFilterIndex.append(0)
+                self.appliedFilterIndex.append(Self.defaultFilterIndexFromUserDefaults())
                 self.cloudSmartOptimizeJPEG.append(nil)
-                self.currentPage = self.images.count - 1
+                self.pageGenerations.append(0)
+                let newPage = self.images.count - 1
+                self.currentPage = newPage
                 self.collectionView.reloadData()
-                self.collectionView.scrollToItem(at: IndexPath(item: self.currentPage, section: 0), at: .centeredHorizontally, animated: true)
+                self.collectionView.layoutIfNeeded()
+                self.collectionView.scrollToItem(at: IndexPath(item: newPage, section: 0), at: .centeredHorizontally, animated: true)
                 self.generateFilterThumbnails()
+                self.editDirty = true
+                self.updateAddPhotoAvailability()
+                self.updateFilterSelection()
+
+                /// 先立刻展示新页与滚动动画；再等相册 dismiss 结束后启动滤镜/云端任务，避免扫描动画绑不到 cell。
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                    guard let self else { return }
+                    guard newPage < self.images.count else { return }
+                    self.collectionView.layoutIfNeeded()
+                    self.reapplyCurrentFilterForPage(newPage)
+                    let idx = self.appliedFilterIndex[newPage]
+                    if Self.editFilterTypes[idx] == .original {
+                        self.updateFilterSelection()
+                        self.persistSandboxAfterEdit(page: newPage)
+                        self.markEditDirtyAndPersistManifest()
+                    }
+                }
             }
         }
     }
