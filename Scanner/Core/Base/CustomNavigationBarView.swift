@@ -101,6 +101,21 @@ final class CustomNavigationBarView: UIView {
         titleLabel.text = text
     }
 
+    /// 自定义导航栏配色（如首页蓝底白字）。`apply` 不会覆盖 `backgroundColor` / 标题色，需在 `refreshCustomNavigationBarContent` 之后如需重置可再调用。
+    func configureBarAppearance(
+        backgroundColor: UIColor,
+        titleColor: UIColor,
+        buttonTintColor: UIColor? = nil,
+        showBottomHairline: Bool = true
+    ) {
+        self.backgroundColor = backgroundColor
+        titleLabel.textColor = titleColor
+        let tint = buttonTintColor ?? titleColor
+        leftButton.tintColor = tint
+        rightButton.tintColor = tint
+        bottomHairline.isHidden = !showBottomHairline
+    }
+
     func apply(
         title: String?,
         left: CustomNavigationBarLeft,

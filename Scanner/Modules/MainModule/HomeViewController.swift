@@ -11,7 +11,7 @@ final class HomeViewController: BaseViewController {
     private var pendingScanImages: [UIImage]?
     private var pendingScanSource: ScanType = .document
 
-    override var prefersCustomNavigationBarHidden: Bool { true }
+    override var prefersCustomNavigationBarHidden: Bool { false }
 
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 
@@ -33,29 +33,10 @@ final class HomeViewController: BaseViewController {
         return g
     }()
 
-    private let titleLabel: UILabel = {
-        let label = UILabel()
-        label.text = "手机扫描仪"
-        label.font = .systemFont(ofSize: 24, weight: .bold)
-        label.textColor = .white
-        return label
-    }()
-
-    private let titleIconView: UIImageView = {
-        let iv = UIImageView()
-        let config = UIImage.SymbolConfiguration(pointSize: 26, weight: .medium)
-        iv.image = UIImage(systemName: "doc.text.viewfinder", withConfiguration: config)
-        iv.tintColor = .white
+    private let bannerTitleImageView: UIImageView = {
+        let iv = UIImageView(image: UIImage(named: "banner_title"))
         iv.contentMode = .scaleAspectFit
         return iv
-    }()
-
-    private let subtitleLabel: UILabel = {
-        let label = UILabel()
-        label.text = "扫描图片生成PDF"
-        label.font = .systemFont(ofSize: 14, weight: .medium)
-        label.textColor = UIColor.white.withAlphaComponent(0.92)
-        return label
     }()
 
     private let heroImageView: UIImageView = {
@@ -74,9 +55,9 @@ final class HomeViewController: BaseViewController {
         let btn = UIButton(type: .system)
         btn.setTitle("扫描文档", for: .normal)
         btn.setTitleColor(.white, for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 18, weight: .semibold)
+        btn.titleLabel?.font = Self.homeButtonFont
         btn.backgroundColor = .appThemePrimary
-        btn.layer.cornerRadius = 16
+        btn.layer.cornerRadius = 15
         btn.layer.masksToBounds = true
         btn.addTarget(self, action: #selector(scanDocumentTapped), for: .touchUpInside)
         return btn
@@ -85,17 +66,28 @@ final class HomeViewController: BaseViewController {
     private lazy var scanCertificateButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.setTitle("扫描证件（身份证、营业执照等）", for: .normal)
-        btn.setTitleColor(UIColor(hex: 0x333333), for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 15, weight: .regular)
+        btn.setTitleColor(UIColor(hex: 0x383D4B), for: .normal)
+        btn.titleLabel?.font = Self.homeButtonFont
         btn.titleLabel?.numberOfLines = 2
         btn.titleLabel?.textAlignment = .center
         btn.backgroundColor = .white
-        btn.layer.cornerRadius = 16
+        btn.layer.cornerRadius = 15
+        btn.layer.masksToBounds = true
         btn.layer.borderWidth = 1
-        btn.layer.borderColor = UIColor(hex: 0xDCDCDC).cgColor
+        btn.layer.borderColor = UIColor(hex: 0x383D4B).cgColor
         btn.addTarget(self, action: #selector(scanCertificateTapped), for: .touchUpInside)
         return btn
     }()
+
+    /// 苹方-简 常规体 15pt（与设计稿一致）
+    private static var homeButtonFont: UIFont {
+        UIFont(name: "PingFangSC-Regular", size: 15) ?? .systemFont(ofSize: 15, weight: .regular)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        view.bringSubviewToFront(customNavigationBar)
+    }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -103,18 +95,24 @@ final class HomeViewController: BaseViewController {
     }
 
     override func setupUI() {
+        title = nil
         view.backgroundColor = .white
         view.addSubview(gradientBackgroundView)
         gradientBackgroundView.layer.insertSublayer(backgroundGradientLayer, at: 0)
-        view.addSubview(titleLabel)
-        view.addSubview(titleIconView)
-        view.addSubview(subtitleLabel)
+        view.addSubview(bannerTitleImageView)
         view.addSubview(heroImageView)
         view.addSubview(primaryButtonContainer)
         primaryButtonContainer.addSubview(scanDocumentButton)
         view.addSubview(scanCertificateButton)
         primaryButtonContainer.addShadow(color: .black, opacity: 0.12, offset: CGSize(width: 0, height: 6), radius: 12)
         view.sendSubviewToBack(gradientBackgroundView)
+        customNavigationBar.configureBarAppearance(
+            backgroundColor: UIColor(hex: 0x305DFF),
+            titleColor: .white,
+            buttonTintColor: .white,
+            showBottomHairline: false
+        )
+        view.bringSubviewToFront(customNavigationBar)
     }
 
     override func viewDidLayoutSubviews() {
@@ -123,38 +121,38 @@ final class HomeViewController: BaseViewController {
     }
 
     override func setupConstraints() {
-        // 渐变仅占背景：屏高上 1/3，不参与内容布局
+        // 渐变从自定义导航栏下缘开始，高度为屏高约 1/3，与导航栏蓝色衔接
         gradientBackgroundView.snp.makeConstraints { make in
-            make.top.leading.trailing.equalToSuperview()
-            make.height.equalToSuperview().multipliedBy(1.0 / 3.0)
+            make.top.equalTo(customNavigationBar.snp.bottom)
+            make.leading.trailing.equalToSuperview()
+            make.height.equalTo(view.snp.height).multipliedBy(1.0 / 3.0)
         }
 
-        titleLabel.snp.makeConstraints { make in
-            make.leading.equalToSuperview().offset(24)
-            make.top.equalTo(view.safeAreaLayoutGuide).offset(20)
+        // banner_title：紧挨导航栏下方；设计 184×50pt，左 20pt
+        bannerTitleImageView.snp.makeConstraints { make in
+            make.leading.equalToSuperview().offset(20)
+            make.top.equalTo(customNavigationBar.snp.bottom)
+            make.width.equalTo(184)
+            make.height.equalTo(50)
         }
 
-        titleIconView.snp.makeConstraints { make in
-            make.leading.equalTo(titleLabel.snp.trailing).offset(10)
-            make.centerY.equalTo(titleLabel)
-            make.width.height.equalTo(28)
-        }
-
-        subtitleLabel.snp.makeConstraints { make in
-            make.leading.equalTo(titleLabel)
-            make.top.equalTo(titleLabel.snp.bottom).offset(8)
-        }
-
+        // 第二张图：左右各 34pt，高度随资源宽高比自适应
         heroImageView.snp.makeConstraints { make in
-            make.top.equalTo(subtitleLabel.snp.bottom).offset(8)
-            make.leading.trailing.equalToSuperview().inset(32)
-            make.height.equalTo(248)
+            make.leading.trailing.equalToSuperview().inset(34)
+            make.top.equalTo(bannerTitleImageView.snp.bottom).offset(28)
+            let ratio: CGFloat = {
+                if let img = UIImage(named: "home_screen_mockup"), img.size.width > 0 {
+                    return img.size.height / img.size.width
+                }
+                return 265.0 / 308.0
+            }()
+            make.height.equalTo(heroImageView.snp.width).multipliedBy(ratio)
         }
 
         primaryButtonContainer.snp.makeConstraints { make in
-            make.top.equalTo(heroImageView.snp.bottom).offset(28)
-            make.leading.trailing.equalToSuperview().inset(20)
-            make.height.equalTo(54)
+            make.top.equalTo(heroImageView.snp.bottom).offset(48)
+            make.leading.trailing.equalToSuperview().inset(40)
+            make.height.equalTo(55)
         }
 
         scanDocumentButton.snp.makeConstraints { make in
@@ -162,9 +160,9 @@ final class HomeViewController: BaseViewController {
         }
 
         scanCertificateButton.snp.makeConstraints { make in
-            make.top.equalTo(primaryButtonContainer.snp.bottom).offset(14)
-            make.leading.trailing.equalTo(primaryButtonContainer)
-            make.height.greaterThanOrEqualTo(52)
+            make.top.equalTo(primaryButtonContainer.snp.bottom).offset(40)
+            make.leading.trailing.equalToSuperview().inset(40)
+            make.height.equalTo(55)
             make.bottom.lessThanOrEqualTo(view.safeAreaLayoutGuide.snp.bottom).offset(-20)
         }
     }
