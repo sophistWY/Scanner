@@ -8,17 +8,34 @@ import SnapKit
 
 final class ProfileViewController: BaseViewController {
 
-    override var prefersNavigationBarHidden: Bool { true }
+    override var prefersCustomNavigationBarHidden: Bool { true }
+
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 
     private let headerView: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor(hex: 0x3569F6)
+        v.backgroundColor = .clear
         return v
+    }()
+
+    private let headerGradientLayer: CAGradientLayer = {
+        let g = CAGradientLayer()
+        g.colors = [
+            UIColor(hex: 0x305DFF).cgColor,
+            UIColor(hex: 0xF0F4FF).cgColor
+        ]
+        g.locations = [0, 1]
+        g.startPoint = CGPoint(x: 0.5, y: 0)
+        g.endPoint = CGPoint(x: 0.5, y: 1)
+        return g
     }()
 
     private lazy var vipButton: UIButton = {
         let btn = UIButton(type: .custom)
         btn.setImage(UIImage(named: "badge_vip"), for: .normal)
+        btn.contentHorizontalAlignment = .center
+        btn.contentVerticalAlignment = .center
+        btn.imageView?.contentMode = .scaleAspectFit
         btn.addTarget(self, action: #selector(vipTapped), for: .touchUpInside)
         return btn
     }()
@@ -26,21 +43,21 @@ final class ProfileViewController: BaseViewController {
     private let stackView: UIStackView = {
         let stack = UIStackView()
         stack.axis = .vertical
-        stack.spacing = 12
+        stack.spacing = 15
         return stack
     }()
 
     private let menuItems: [(title: String, action: Selector)] = [
-        ("隐私政策", #selector(privacyTapped)),
-        ("用户协议", #selector(serviceTapped)),
-        ("订阅说明", #selector(subscriptionTapped)),
+        ("隐私协议", #selector(privacyTapped)),
+        ("服务协议", #selector(serviceTapped)),
         ("意见反馈", #selector(feedbackTapped)),
         ("清空缓存", #selector(clearCacheTapped))
     ]
 
     override func setupUI() {
-        view.backgroundColor = UIColor(hex: 0xF6F6F8)
+        view.backgroundColor = UIColor(hex: 0xF0F4FF)
         view.addSubview(headerView)
+        headerView.layer.insertSublayer(headerGradientLayer, at: 0)
         view.addSubview(vipButton)
         view.addSubview(stackView)
 
@@ -48,33 +65,43 @@ final class ProfileViewController: BaseViewController {
             let row = makeMenuRow(title: item.title, action: item.action)
             stackView.addArrangedSubview(row)
         }
+        view.sendSubviewToBack(headerView)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        headerGradientLayer.frame = headerView.bounds
+        vipButton.imageView?.contentMode = .scaleAspectFit
     }
 
     override func setupConstraints() {
+        // 渐变仅占背景：屏高上 1/3，菜单与按钮仍按 safeArea 布局，不依赖此视图高度
         headerView.snp.makeConstraints { make in
             make.top.leading.trailing.equalToSuperview()
-            make.height.equalTo(200)
+            make.height.equalToSuperview().multipliedBy(1.0 / 3.0)
         }
 
         vipButton.snp.makeConstraints { make in
             make.top.equalTo(view.safeAreaLayoutGuide).offset(12)
             make.trailing.equalToSuperview().offset(-16)
-            make.width.height.equalTo(28)
+            make.width.height.equalTo(44)
         }
 
         stackView.snp.makeConstraints { make in
-            make.top.equalTo(view.safeAreaLayoutGuide).offset(88)
-            make.leading.trailing.equalToSuperview().inset(16)
+            make.top.equalTo(view.safeAreaLayoutGuide).offset(72)
+            make.leading.trailing.equalToSuperview().inset(15)
         }
     }
 
     private func makeMenuRow(title: String, action: Selector) -> UIControl {
         let card = UIControl()
         card.backgroundColor = .white
-        card.layer.cornerRadius = 12
-        card.layer.borderColor = UIColor(hex: 0xE7E7EE).cgColor
-        card.layer.borderWidth = 1
-        card.addShadow(color: .black, opacity: 0.06, offset: .init(width: 0, height: 2), radius: 8)
+        card.layer.cornerRadius = 10
+        card.layer.masksToBounds = false
+        card.layer.shadowColor = UIColor(red: 0.64, green: 0.71, blue: 1, alpha: 0.24).cgColor
+        card.layer.shadowOffset = CGSize(width: 0, height: 1)
+        card.layer.shadowOpacity = 1
+        card.layer.shadowRadius = 4
         card.addTarget(self, action: action, for: .touchUpInside)
 
         let titleLabel = UILabel()
@@ -92,7 +119,7 @@ final class ProfileViewController: BaseViewController {
         card.addSubview(arrow)
 
         card.snp.makeConstraints { make in
-            make.height.equalTo(52)
+            make.height.equalTo(70)
         }
 
         titleLabel.snp.makeConstraints { make in
@@ -114,15 +141,11 @@ final class ProfileViewController: BaseViewController {
     }
 
     @objc private func privacyTapped() {
-        Router.shared.openWeb(url: kPrivacyPolicyURL, title: "隐私政策")
+        Router.shared.openWeb(url: kPrivacyPolicyURL, title: "隐私协议")
     }
 
     @objc private func serviceTapped() {
-        Router.shared.openWeb(url: kUserAgreementURL, title: "用户协议")
-    }
-
-    @objc private func subscriptionTapped() {
-        Router.shared.openWeb(url: kSubscriptionInfoURL, title: "订阅说明")
+        Router.shared.openWeb(url: kUserAgreementURL, title: "服务协议")
     }
 
     @objc private func feedbackTapped() {

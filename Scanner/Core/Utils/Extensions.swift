@@ -9,6 +9,9 @@ import UIKit
 
 extension UIColor {
 
+    /// App primary brand (navigation bar, key accents). Design: ~#305DFF
+    static let appThemePrimary = UIColor(hex: 0x305DFF)
+
     convenience init(hex: UInt32, alpha: CGFloat = 1.0) {
         self.init(
             red: CGFloat((hex >> 16) & 0xFF) / 255.0,

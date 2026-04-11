@@ -6,11 +6,9 @@
 import UIKit
 import SnapKit
 
-final class DocumentCell: UITableViewCell {
+/// 文档列表项（UICollectionViewCell，高度由列表布局指定，通常为 90pt）。
+final class DocumentCollectionViewCell: UICollectionViewCell {
 
-    // MARK: - UI
-
-    /// Holds shadow; inner card clips content (design: floating card, no stroke).
     private let shadowContainer: UIView = {
         let v = UIView()
         v.backgroundColor = .clear
@@ -24,7 +22,7 @@ final class DocumentCell: UITableViewCell {
     private let cardView: UIView = {
         let v = UIView()
         v.backgroundColor = .white
-        v.layer.cornerRadius = 16
+        v.layer.cornerRadius = 12
         v.layer.masksToBounds = true
         return v
     }()
@@ -51,10 +49,8 @@ final class DocumentCell: UITableViewCell {
         return label
     }()
 
-    // MARK: - Init
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
+    override init(frame: CGRect) {
+        super.init(frame: frame)
         setupViews()
     }
 
@@ -63,12 +59,9 @@ final class DocumentCell: UITableViewCell {
         fatalError("init(coder:) has not been implemented")
     }
 
-    // MARK: - Setup
-
     private func setupViews() {
-        backgroundColor = .clear
-        selectionStyle = .none
         contentView.backgroundColor = .clear
+        backgroundColor = .clear
 
         contentView.addSubview(shadowContainer)
         shadowContainer.addSubview(cardView)
@@ -76,12 +69,8 @@ final class DocumentCell: UITableViewCell {
         cardView.addSubview(nameLabel)
         cardView.addSubview(detailLabel)
 
-        let horizontalInset: CGFloat = 16
-        let verticalInset: CGFloat = 6
-
         shadowContainer.snp.makeConstraints { make in
-            make.top.bottom.equalToSuperview().inset(verticalInset)
-            make.leading.trailing.equalToSuperview().inset(horizontalInset)
+            make.edges.equalToSuperview()
         }
 
         cardView.snp.makeConstraints { make in
@@ -89,34 +78,32 @@ final class DocumentCell: UITableViewCell {
         }
 
         pdfImageView.snp.makeConstraints { make in
-            make.trailing.equalToSuperview().offset(-16)
+            make.trailing.equalToSuperview().offset(-14)
             make.centerY.equalToSuperview()
             make.width.height.equalTo(36)
         }
 
         nameLabel.snp.makeConstraints { make in
-            make.leading.equalToSuperview().offset(16)
-            make.trailing.lessThanOrEqualTo(pdfImageView.snp.leading).offset(-12)
-            make.top.equalToSuperview().offset(16)
+            make.leading.equalToSuperview().offset(14)
+            make.trailing.lessThanOrEqualTo(pdfImageView.snp.leading).offset(-10)
+            make.top.equalToSuperview().offset(14)
         }
 
         detailLabel.snp.makeConstraints { make in
             make.leading.equalTo(nameLabel)
             make.trailing.equalTo(nameLabel)
             make.top.equalTo(nameLabel.snp.bottom).offset(4)
-            make.bottom.lessThanOrEqualToSuperview().offset(-16)
+            make.bottom.lessThanOrEqualToSuperview().offset(-12)
         }
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let radius: CGFloat = 16
+        let radius: CGFloat = 12
         let rect = shadowContainer.bounds
         guard rect.width > 0, rect.height > 0 else { return }
         shadowContainer.layer.shadowPath = UIBezierPath(roundedRect: rect, cornerRadius: radius).cgPath
     }
-
-    // MARK: - Configure
 
     func configure(with document: DocumentModel) {
         nameLabel.text = document.name

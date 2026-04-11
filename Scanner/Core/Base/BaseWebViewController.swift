@@ -12,6 +12,8 @@ import SnapKit
 
 class BaseWebViewController: BaseViewController {
 
+    override var customNavigationBarLeftItem: CustomNavigationBarLeft? { .close }
+
     // MARK: - Properties
 
     private let urlString: String
@@ -28,7 +30,7 @@ class BaseWebViewController: BaseViewController {
     private lazy var progressView: UIProgressView = {
         let pv = UIProgressView(progressViewStyle: .default)
         pv.trackTintColor = .clear
-        pv.progressTintColor = .systemBlue
+        pv.progressTintColor = .appThemePrimary
         return pv
     }()
 
@@ -58,18 +60,11 @@ class BaseWebViewController: BaseViewController {
 
         view.addSubview(webView)
         view.addSubview(progressView)
-
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "xmark"),
-            style: .plain,
-            target: self,
-            action: #selector(closeTapped)
-        )
     }
 
     override func setupConstraints() {
         progressView.snp.makeConstraints { make in
-            make.top.equalTo(view.safeAreaLayoutGuide)
+            make.top.equalTo(customNavigationBar.snp.bottom)
             make.leading.trailing.equalToSuperview()
             make.height.equalTo(2)
         }
@@ -78,6 +73,10 @@ class BaseWebViewController: BaseViewController {
             make.top.equalTo(progressView.snp.bottom)
             make.leading.trailing.bottom.equalToSuperview()
         }
+    }
+
+    override func customNavigationBarLeftButtonTapped() {
+        closeTapped()
     }
 
     override func bindViewModel() {

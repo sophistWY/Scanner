@@ -47,27 +47,16 @@ final class HUD {
         }
     }
 
+    /// 与设计稿一致：深色圆角卡片 + 图标 + 文案（不遮挡全屏交互）。
     func showSuccess(_ message: String, duration: TimeInterval = 1.5) {
-        DispatchQueue.main.async {
-            self.configureIfNeeded()
-            SVProgressHUD.setMinimumDismissTimeInterval(duration)
-            SVProgressHUD.showSuccess(withStatus: message)
-        }
+        ScannerToast.show(kind: .success, message: message, duration: duration)
     }
 
     func showError(_ message: String, duration: TimeInterval = 2.0) {
-        DispatchQueue.main.async {
-            self.configureIfNeeded()
-            SVProgressHUD.setMinimumDismissTimeInterval(duration)
-            SVProgressHUD.showError(withStatus: message)
-        }
+        ScannerToast.show(kind: .error, message: message, duration: duration)
     }
 
     func showToast(_ message: String, duration: TimeInterval = 1.5) {
-        DispatchQueue.main.async {
-            self.configureIfNeeded()
-            SVProgressHUD.setMinimumDismissTimeInterval(duration)
-            SVProgressHUD.showInfo(withStatus: message)
-        }
+        ScannerToast.show(kind: .info, message: message, duration: duration)
     }
 }

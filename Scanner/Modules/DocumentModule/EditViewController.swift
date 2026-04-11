@@ -154,19 +154,12 @@ final class EditViewController: BaseViewController {
 
     // MARK: - Setup
 
+    override var customNavigationBarLeftItem: CustomNavigationBarLeft? { .title("返回") }
+    override var customNavigationBarRightItem: CustomNavigationBarRight? { .title("分享PDF", destructive: false) }
+
     override func setupUI() {
         view.backgroundColor = .black
         title = documentName
-        navigationItem.largeTitleDisplayMode = .never
-
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "分享PDF", style: .plain,
-            target: self, action: #selector(shareTapped)
-        )
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: "返回", style: .plain,
-            target: self, action: #selector(backTapped)
-        )
 
         view.addSubview(collectionView)
         view.addSubview(bottomContainer)
@@ -189,7 +182,7 @@ final class EditViewController: BaseViewController {
         }
 
         collectionView.snp.makeConstraints { make in
-            make.top.equalTo(view.safeAreaLayoutGuide)
+            make.top.equalTo(customNavigationBar.snp.bottom)
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(bottomContainer.snp.top)
         }
@@ -362,7 +355,7 @@ final class EditViewController: BaseViewController {
 
     // MARK: - Actions
 
-    @objc private func backTapped() {
+    override func customNavigationBarLeftButtonTapped() {
         guard !isExporting else { return }
         if hasExportedSuccessfully {
             navigationController?.popViewController(animated: true)
@@ -380,6 +373,10 @@ final class EditViewController: BaseViewController {
         }
     }
 
+    override func customNavigationBarRightButtonTapped() {
+        shareTapped()
+    }
+
     @objc private func shareTapped() {
         showLoading(message: "生成PDF...")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -394,7 +391,8 @@ final class EditViewController: BaseViewController {
                 }
                 let activityVC = UIActivityViewController(activityItems: [tmpURL], applicationActivities: nil)
                 if let popover = activityVC.popoverPresentationController {
-                    popover.barButtonItem = self.navigationItem.rightBarButtonItem
+                    popover.sourceView = self.customNavigationBar.rightButton
+                    popover.sourceRect = self.customNavigationBar.rightButton.bounds
                 }
                 self.present(activityVC, animated: true)
             }

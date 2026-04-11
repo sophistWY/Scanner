@@ -42,7 +42,8 @@ final class CropViewController: BaseViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var prefersNavigationBarHidden: Bool { false }
+    override var customNavigationBarLeftItem: CustomNavigationBarLeft? { .title("取消") }
+    override var customNavigationBarRightItem: CustomNavigationBarRight? { .title("完成", destructive: false) }
 
     // MARK: - Setup
 
@@ -50,21 +51,23 @@ final class CropViewController: BaseViewController {
         view.backgroundColor = .black
         title = "裁剪"
 
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: "取消", style: .plain, target: self, action: #selector(cancelTapped)
-        )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "完成", style: .done, target: self, action: #selector(doneTapped)
-        )
-
         imageView.image = sourceImage
         view.addSubview(imageView)
         view.addSubview(cropView)
     }
 
+    override func customNavigationBarLeftButtonTapped() {
+        cancelTapped()
+    }
+
+    override func customNavigationBarRightButtonTapped() {
+        doneTapped()
+    }
+
     override func setupConstraints() {
         imageView.snp.makeConstraints { make in
-            make.edges.equalTo(view.safeAreaLayoutGuide)
+            make.top.equalTo(customNavigationBar.snp.bottom)
+            make.leading.trailing.bottom.equalToSuperview()
         }
         cropView.snp.makeConstraints { make in
             make.edges.equalTo(imageView)

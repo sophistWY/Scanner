@@ -11,25 +11,48 @@ final class HomeViewController: BaseViewController {
     private var pendingScanImages: [UIImage]?
     private var pendingScanSource: ScanType = .document
 
-    override var prefersNavigationBarHidden: Bool { true }
+    override var prefersCustomNavigationBarHidden: Bool { true }
 
-    private let headerBackgroundView: UIView = {
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
+
+    private let gradientBackgroundView: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor(hex: 0x3569F6)
+        v.isUserInteractionEnabled = false
         return v
+    }()
+
+    private let backgroundGradientLayer: CAGradientLayer = {
+        let g = CAGradientLayer()
+        g.colors = [
+            UIColor(hex: 0x305DFF).cgColor,
+            UIColor.white.cgColor
+        ]
+        g.locations = [0, 1]
+        g.startPoint = CGPoint(x: 0.5, y: 0)
+        g.endPoint = CGPoint(x: 0.5, y: 1)
+        return g
     }()
 
     private let titleLabel: UILabel = {
         let label = UILabel()
         label.text = "手机扫描仪"
-        label.font = .systemFont(ofSize: 22, weight: .bold)
+        label.font = .systemFont(ofSize: 24, weight: .bold)
         label.textColor = .white
         return label
     }()
 
+    private let titleIconView: UIImageView = {
+        let iv = UIImageView()
+        let config = UIImage.SymbolConfiguration(pointSize: 26, weight: .medium)
+        iv.image = UIImage(systemName: "doc.text.viewfinder", withConfiguration: config)
+        iv.tintColor = .white
+        iv.contentMode = .scaleAspectFit
+        return iv
+    }()
+
     private let subtitleLabel: UILabel = {
         let label = UILabel()
-        label.text = "拍照扫描 · 导出高清 PDF"
+        label.text = "扫描图片生成PDF"
         label.font = .systemFont(ofSize: 14, weight: .medium)
         label.textColor = UIColor.white.withAlphaComponent(0.92)
         return label
@@ -41,45 +64,37 @@ final class HomeViewController: BaseViewController {
         return iv
     }()
 
+    private let primaryButtonContainer: UIView = {
+        let v = UIView()
+        v.backgroundColor = .clear
+        return v
+    }()
+
     private lazy var scanDocumentButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.setTitle("扫描文档", for: .normal)
         btn.setTitleColor(.white, for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 18, weight: .medium)
-        btn.backgroundColor = UIColor(hex: 0x3569F6)
-        btn.layer.cornerRadius = 14
+        btn.titleLabel?.font = .systemFont(ofSize: 18, weight: .semibold)
+        btn.backgroundColor = .appThemePrimary
+        btn.layer.cornerRadius = 16
+        btn.layer.masksToBounds = true
         btn.addTarget(self, action: #selector(scanDocumentTapped), for: .touchUpInside)
         return btn
     }()
 
     private lazy var scanCertificateButton: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setTitle("扫描证件（身份证、银行卡等）", for: .normal)
+        btn.setTitle("扫描证件（身份证、营业执照等）", for: .normal)
         btn.setTitleColor(UIColor(hex: 0x333333), for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 16, weight: .regular)
+        btn.titleLabel?.font = .systemFont(ofSize: 15, weight: .regular)
+        btn.titleLabel?.numberOfLines = 2
+        btn.titleLabel?.textAlignment = .center
         btn.backgroundColor = .white
-        btn.layer.cornerRadius = 14
+        btn.layer.cornerRadius = 16
         btn.layer.borderWidth = 1
-        btn.layer.borderColor = UIColor(hex: 0xAFAFAF).cgColor
+        btn.layer.borderColor = UIColor(hex: 0xDCDCDC).cgColor
         btn.addTarget(self, action: #selector(scanCertificateTapped), for: .touchUpInside)
         return btn
-    }()
-
-    private let actionCardView: UIView = {
-        let v = UIView()
-        v.backgroundColor = .white
-        v.layer.cornerRadius = 16
-        v.layer.masksToBounds = false
-        return v
-    }()
-
-    private let docHintLabel: UILabel = {
-        let label = UILabel()
-        label.text = "扫描完成后可在「文档」页查看与管理"
-        label.font = .systemFont(ofSize: 12, weight: .regular)
-        label.textColor = UIColor(hex: 0x888888)
-        label.textAlignment = .center
-        return label
     }()
 
     override func viewDidAppear(_ animated: Bool) {
@@ -88,61 +103,69 @@ final class HomeViewController: BaseViewController {
     }
 
     override func setupUI() {
-        view.backgroundColor = UIColor(hex: 0xF6F6F8)
-        view.addSubview(headerBackgroundView)
+        view.backgroundColor = .white
+        view.addSubview(gradientBackgroundView)
+        gradientBackgroundView.layer.insertSublayer(backgroundGradientLayer, at: 0)
         view.addSubview(titleLabel)
+        view.addSubview(titleIconView)
         view.addSubview(subtitleLabel)
         view.addSubview(heroImageView)
-        view.addSubview(actionCardView)
-        actionCardView.addSubview(scanDocumentButton)
-        actionCardView.addSubview(scanCertificateButton)
-        view.addSubview(docHintLabel)
+        view.addSubview(primaryButtonContainer)
+        primaryButtonContainer.addSubview(scanDocumentButton)
+        view.addSubview(scanCertificateButton)
+        primaryButtonContainer.addShadow(color: .black, opacity: 0.12, offset: CGSize(width: 0, height: 6), radius: 12)
+        view.sendSubviewToBack(gradientBackgroundView)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        backgroundGradientLayer.frame = gradientBackgroundView.bounds
     }
 
     override func setupConstraints() {
-        headerBackgroundView.snp.makeConstraints { make in
+        // 渐变仅占背景：屏高上 1/3，不参与内容布局
+        gradientBackgroundView.snp.makeConstraints { make in
             make.top.leading.trailing.equalToSuperview()
-            make.height.equalTo(300)
+            make.height.equalToSuperview().multipliedBy(1.0 / 3.0)
         }
 
         titleLabel.snp.makeConstraints { make in
             make.leading.equalToSuperview().offset(24)
-            make.top.equalTo(view.safeAreaLayoutGuide).offset(22)
+            make.top.equalTo(view.safeAreaLayoutGuide).offset(20)
+        }
+
+        titleIconView.snp.makeConstraints { make in
+            make.leading.equalTo(titleLabel.snp.trailing).offset(10)
+            make.centerY.equalTo(titleLabel)
+            make.width.height.equalTo(28)
         }
 
         subtitleLabel.snp.makeConstraints { make in
             make.leading.equalTo(titleLabel)
-            make.top.equalTo(titleLabel.snp.bottom).offset(6)
+            make.top.equalTo(titleLabel.snp.bottom).offset(8)
         }
 
         heroImageView.snp.makeConstraints { make in
-            make.top.equalTo(subtitleLabel.snp.bottom).offset(12)
-            make.leading.trailing.equalToSuperview().inset(40)
-            make.height.equalTo(260)
+            make.top.equalTo(subtitleLabel.snp.bottom).offset(8)
+            make.leading.trailing.equalToSuperview().inset(32)
+            make.height.equalTo(248)
         }
 
-        actionCardView.snp.makeConstraints { make in
-            make.top.equalTo(heroImageView.snp.bottom).offset(20)
+        primaryButtonContainer.snp.makeConstraints { make in
+            make.top.equalTo(heroImageView.snp.bottom).offset(28)
             make.leading.trailing.equalToSuperview().inset(20)
+            make.height.equalTo(54)
         }
-        actionCardView.addShadow(color: .black, opacity: 0.08, offset: .init(width: 0, height: 4), radius: 12)
 
         scanDocumentButton.snp.makeConstraints { make in
-            make.top.equalToSuperview().offset(18)
-            make.leading.trailing.equalToSuperview().inset(16)
-            make.height.equalTo(52)
+            make.edges.equalToSuperview()
         }
 
         scanCertificateButton.snp.makeConstraints { make in
-            make.top.equalTo(scanDocumentButton.snp.bottom).offset(14)
-            make.leading.trailing.equalTo(scanDocumentButton)
-            make.height.equalTo(52)
-            make.bottom.equalToSuperview().offset(-18)
-        }
-
-        docHintLabel.snp.makeConstraints { make in
-            make.top.equalTo(actionCardView.snp.bottom).offset(14)
-            make.leading.trailing.equalToSuperview().inset(24)
+            make.top.equalTo(primaryButtonContainer.snp.bottom).offset(14)
+            make.leading.trailing.equalTo(primaryButtonContainer)
+            make.height.greaterThanOrEqualTo(52)
+            make.bottom.lessThanOrEqualTo(view.safeAreaLayoutGuide.snp.bottom).offset(-20)
         }
     }
 

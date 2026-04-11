@@ -37,6 +37,8 @@ enum AppConstants {
     }
 
     enum UI {
+        /// Standard navigation bar content row (below status bar / notch).
+        static let navigationBarContentHeight: CGFloat = 44
         static let cornerRadius: CGFloat = 12
         static let padding: CGFloat = 16
         static let smallPadding: CGFloat = 8

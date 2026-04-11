@@ -97,7 +97,7 @@ final class VIPViewController: BaseViewController {
         view.addSubview(infoLabel)
 
         vipCard.snp.makeConstraints { make in
-            make.top.equalTo(view.safeAreaLayoutGuide).offset(22)
+            make.top.equalTo(customNavigationBar.snp.bottom).offset(22)
             make.leading.trailing.equalToSuperview().inset(20)
             make.height.equalTo(160)
         }

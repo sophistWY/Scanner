@@ -100,17 +100,14 @@ final class CapturedImagesPreviewController: BaseViewController {
 
     // MARK: - Setup
 
+    override var customNavigationBarLeftItem: CustomNavigationBarLeft? { .close }
+    override var customNavigationBarRightItem: CustomNavigationBarRight? {
+        .icon(UIImage(systemName: "trash"), destructive: true)
+    }
+
     override func setupUI() {
         view.backgroundColor = .black
         title = "已拍摄"
-
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: "返回", style: .plain, target: self, action: #selector(closeTapped)
-        )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .trash, target: self, action: #selector(deleteTapped)
-        )
-        navigationItem.rightBarButtonItem?.tintColor = .systemRed
 
         view.addSubview(collectionView)
         view.addSubview(pageLabel)
@@ -139,10 +136,18 @@ final class CapturedImagesPreviewController: BaseViewController {
         }
 
         collectionView.snp.makeConstraints { make in
-            make.top.equalTo(view.safeAreaLayoutGuide)
+            make.top.equalTo(customNavigationBar.snp.bottom)
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(pageLabel.snp.top).offset(-8)
         }
+    }
+
+    override func customNavigationBarLeftButtonTapped() {
+        closeTapped()
+    }
+
+    override func customNavigationBarRightButtonTapped() {
+        deleteTapped()
     }
 
     override func viewDidLayoutSubviews() {

@@ -72,7 +72,6 @@ final class DocumentDetailViewController: BaseViewController {
 
     override func setupUI() {
         title = document.name
-        navigationItem.largeTitleDisplayMode = .never
 
         view.addSubview(pdfView)
         view.addSubview(toolbar)
@@ -88,7 +87,7 @@ final class DocumentDetailViewController: BaseViewController {
         }
 
         pdfView.snp.makeConstraints { make in
-            make.top.equalTo(view.safeAreaLayoutGuide)
+            make.top.equalTo(customNavigationBar.snp.bottom)
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(toolbar.snp.top)
         }
