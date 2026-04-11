@@ -17,6 +17,7 @@ import PhotosUI
 protocol EditViewControllerDelegate: AnyObject {
     func editViewController(_ vc: EditViewController, didFinishWith images: [UIImage])
     func editViewControllerDidCancel(_ vc: EditViewController)
+    func editViewControllerRequestRetake(_ vc: EditViewController)
 }
 
 extension EditViewControllerDelegate {
