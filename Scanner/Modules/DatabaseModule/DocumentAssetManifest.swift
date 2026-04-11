@@ -10,27 +10,38 @@ import Foundation
 /// Per-document edit manifest. **Image bytes are never stored in WCDB** — only indices and stable path roots.
 struct DocumentAssetManifest: Equatable {
 
-    static let currentVersion = 2
+    static let currentVersion = 3
+
+    /// `guidedAdjust` when document was created from guided certificate flow; `nil` = default multi-page edit.
+    static let editorSchemaGuidedAdjust = "guidedAdjust"
 
     /// Schema version for migrations / debugging.
     var version: Int
     /// Per-page selected filter index aligned with `EditViewController.editFilterTypes`.
+    /// For guided flow: indices 0...2 map to 原图 / 黑白 / 灰度 (`GuidedAdjustFilter`), disk slots `filter_20`…`filter_22`.
     var appliedFilterIndices: [Int]
     /// Root under app `Documents/`, e.g. `Scans/DocAssets/42`. Files live at `<root>/page_<n>/baseline.jpg`, `filter_<k>.jpg`.
     var docAssetsRootRelative: String?
     /// Monotonic counter bumped on edit; helps spot stale DB vs sandbox (e.g. crash between file write & commit).
     var revision: Int64
+    /// When `editorSchema == guidedAdjust`, which guided editor to open (`GuidedDocumentKind.rawValue`).
+    var editorSchema: String?
+    var guidedDocumentKind: String?
 
     init(
         version: Int = DocumentAssetManifest.currentVersion,
         appliedFilterIndices: [Int],
         docAssetsRootRelative: String? = nil,
-        revision: Int64 = 0
+        revision: Int64 = 0,
+        editorSchema: String? = nil,
+        guidedDocumentKind: String? = nil
     ) {
         self.version = version
         self.appliedFilterIndices = appliedFilterIndices
         self.docAssetsRootRelative = docAssetsRootRelative
         self.revision = revision
+        self.editorSchema = editorSchema
+        self.guidedDocumentKind = guidedDocumentKind
     }
 
     static func empty(pageCount: Int) -> DocumentAssetManifest {
@@ -66,6 +77,8 @@ extension DocumentAssetManifest: Codable {
         case docAssetsRootRelative
         case revision
         case pageAssetRoots
+        case editorSchema
+        case guidedDocumentKind
     }
 
     init(from decoder: Decoder) throws {
@@ -74,6 +87,8 @@ extension DocumentAssetManifest: Codable {
         appliedFilterIndices = try c.decode([Int].self, forKey: .appliedFilterIndices)
         docAssetsRootRelative = try c.decodeIfPresent(String.self, forKey: .docAssetsRootRelative)
         revision = try c.decodeIfPresent(Int64.self, forKey: .revision) ?? 0
+        editorSchema = try c.decodeIfPresent(String.self, forKey: .editorSchema)
+        guidedDocumentKind = try c.decodeIfPresent(String.self, forKey: .guidedDocumentKind)
         _ = try c.decodeIfPresent([String].self, forKey: .pageAssetRoots)
     }
 
@@ -83,6 +98,8 @@ extension DocumentAssetManifest: Codable {
         try c.encode(appliedFilterIndices, forKey: .appliedFilterIndices)
         try c.encodeIfPresent(docAssetsRootRelative, forKey: .docAssetsRootRelative)
         try c.encode(revision, forKey: .revision)
+        try c.encodeIfPresent(editorSchema, forKey: .editorSchema)
+        try c.encodeIfPresent(guidedDocumentKind, forKey: .guidedDocumentKind)
     }
 }
 

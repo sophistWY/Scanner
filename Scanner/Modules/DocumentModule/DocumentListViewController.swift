@@ -306,6 +306,19 @@ extension DocumentListViewController: EditViewControllerDelegate {
     func editViewControllerDidCancel(_ vc: EditViewController) {}
 }
 
+extension DocumentListViewController: GuidedDocumentAdjustViewControllerDelegate {
+
+    func guidedAdjustViewController(_ vc: GuidedDocumentAdjustViewController, didFinishWith _: [UIImage]) {
+        viewModel.loadDocuments()
+    }
+
+    func guidedAdjustViewController(_ vc: GuidedDocumentAdjustViewController, didPersistDocument document: DocumentModel) {
+        viewModel.loadDocuments()
+    }
+
+    func guidedAdjustViewControllerDidCancel(_ vc: GuidedDocumentAdjustViewController) {}
+}
+
 extension DocumentListViewController: DocumentDetailDelegate {
 
     func documentDetailDidDelete(_ vc: DocumentDetailViewController) {

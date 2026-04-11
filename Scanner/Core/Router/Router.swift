@@ -106,9 +106,31 @@ final class Router {
 
     /// Push immediately; PDF pages are decoded after transition (see `EditViewController`).
     func openEdit(existingDocument document: DocumentModel, delegate: EditViewControllerDelegate) {
+        if let manifest = DocumentAssetManifest.parse(document.assetManifestJSON),
+           manifest.editorSchema == DocumentAssetManifest.editorSchemaGuidedAdjust,
+           let raw = manifest.guidedDocumentKind,
+           let kind = GuidedDocumentKind(rawValue: raw) {
+            let guidedVC = GuidedDocumentAdjustViewController(existingDocument: document, kind: kind)
+            if let guidedDelegate = delegate as? GuidedDocumentAdjustViewControllerDelegate {
+                guidedVC.adjustDelegate = guidedDelegate
+            }
+            push(guidedVC)
+            return
+        }
         let editVC = EditViewController(existingDocument: document)
         editVC.editDelegate = delegate
         push(editVC)
+    }
+
+    func openGuidedCapture(
+        kind: GuidedDocumentKind,
+        captureDelegate: GuidedDocumentCaptureViewControllerDelegate,
+        adjustDelegate: GuidedDocumentAdjustViewControllerDelegate
+    ) {
+        let vc = GuidedDocumentCaptureViewController(kind: kind)
+        vc.captureDelegate = captureDelegate
+        vc.guidedAdjustDelegate = adjustDelegate
+        push(vc)
     }
 
     func openWeb(url: String, title: String? = nil) {

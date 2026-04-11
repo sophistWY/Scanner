@@ -169,8 +169,11 @@ final class HomeViewController: BaseViewController {
         showActionSheet(
             title: "选择证件类型",
             actions: [
-                ("身份证/银行卡", .default, { [weak self] in self?.startScan(.bankCard) }),
-                ("营业执照", .default, { [weak self] in self?.startScan(.businessLicense) })
+                ("身份证", .default, { [weak self] in self?.startGuided(.nationalID) }),
+                ("银行卡", .default, { [weak self] in self?.startGuided(.bankCard) }),
+                ("营业执照", .default, { [weak self] in self?.startGuided(.businessLicense) }),
+                ("结婚证", .default, { [weak self] in self?.startGuided(.marriageCertificate) }),
+                ("奖状", .default, { [weak self] in self?.startGuided(.award) })
             ]
         )
     }
@@ -180,6 +183,13 @@ final class HomeViewController: BaseViewController {
         PermissionHelper.shared.requestCameraPermission(from: self) { [weak self] granted in
             guard granted, let self else { return }
             Router.shared.openScan(type: type, delegate: self)
+        }
+    }
+
+    private func startGuided(_ kind: GuidedDocumentKind) {
+        PermissionHelper.shared.requestCameraPermission(from: self) { [weak self] granted in
+            guard granted, let self else { return }
+            Router.shared.openGuidedCapture(kind: kind, captureDelegate: self, adjustDelegate: self)
         }
     }
 
@@ -209,4 +219,16 @@ extension HomeViewController: EditViewControllerDelegate {
             popEdit()
         }
     }
+}
+
+extension HomeViewController: GuidedDocumentCaptureViewControllerDelegate {
+    func guidedCaptureViewControllerDidCancel(_ vc: GuidedDocumentCaptureViewController) {}
+}
+
+extension HomeViewController: GuidedDocumentAdjustViewControllerDelegate {
+    func guidedAdjustViewController(_ vc: GuidedDocumentAdjustViewController, didFinishWith _: [UIImage]) {}
+
+    func guidedAdjustViewController(_ vc: GuidedDocumentAdjustViewController, didPersistDocument _: DocumentModel) {}
+
+    func guidedAdjustViewControllerDidCancel(_ vc: GuidedDocumentAdjustViewController) {}
 }
