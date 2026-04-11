@@ -48,6 +48,11 @@ final class DocumentAssetStore {
         return rel.hasPrefix("/") ? String(rel.dropFirst()) : rel
     }
 
+    /// Canonical path under app `Documents/` for a page file (matches `DocumentAssetManifest.docAssetsRootRelative` + `page_<n>/`).
+    func relativePathUnderDocuments(folderId: String, page: Int, fileName: String) -> String {
+        "\(relativeRootPath(folderId: folderId))/page_\(page)/\(fileName)"
+    }
+
     func invalidatePage(folderId: String, page: Int, completion: (() -> Void)? = nil) {
         let q = queue(for: folderId)
         q.async { [self] in

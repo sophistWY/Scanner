@@ -35,4 +35,10 @@ final class DocumentEditPersistence {
         manifestWorkItem = nil
         _ = db.updateDocumentAssetManifest(id: documentId, assetManifestJSON: manifest.jsonString())
     }
+
+    /// Cancel debounced manifest write (e.g. before export / full `updateDocumentContent` to avoid stale overwrites).
+    func cancelPendingManifestCommit() {
+        manifestWorkItem?.cancel()
+        manifestWorkItem = nil
+    }
 }

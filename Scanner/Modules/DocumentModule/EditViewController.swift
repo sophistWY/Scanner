@@ -80,6 +80,8 @@ final class EditViewController: BaseViewController {
     /// Sandbox folder when `documentId == nil`: `pending_<uuid>`.
     private var pendingAssetFolderId: String = ""
     private var editDirty = false
+    /// Loaded from `DocumentAssetManifest.revision`; incremented on each persisted edit.
+    private var manifestRevision: Int64 = 0
     private var backgroundObserver: NSObjectProtocol?
     /// For existing documents: used to cap add-photo at 50 pages.
     private var sourceDocumentPageCount: Int?
@@ -346,6 +348,7 @@ final class EditViewController: BaseViewController {
            let manifest = DocumentAssetManifest.parse(doc.assetManifestJSON),
            manifest.appliedFilterIndices.count == images.count {
             appliedFilterIndex = manifest.appliedFilterIndices
+            manifestRevision = manifest.revision
         }
 
         hydratePersistedStateAfterLoadingFromPDF()
@@ -445,8 +448,17 @@ final class EditViewController: BaseViewController {
         return nil
     }
 
+    private func makeManifest() -> DocumentAssetManifest {
+        let root = assetFolderId().map { DocumentAssetStore.shared.relativeRootPath(folderId: $0) }
+        return DocumentAssetManifest(
+            appliedFilterIndices: appliedFilterIndex,
+            docAssetsRootRelative: root,
+            revision: manifestRevision
+        )
+    }
+
     private func buildManifestJSON() -> String {
-        DocumentAssetManifest(appliedFilterIndices: appliedFilterIndex).jsonString()
+        makeManifest().jsonString()
     }
 
     private func updateAddPhotoAvailability() {
@@ -464,18 +476,16 @@ final class EditViewController: BaseViewController {
     private func markEditDirtyAndPersistManifest() {
         editDirty = true
         guard let id = documentId else { return }
-        let manifest = DocumentAssetManifest(appliedFilterIndices: appliedFilterIndex)
-        DocumentEditPersistence.shared.scheduleManifestCommit(documentId: id, manifest: manifest)
+        manifestRevision += 1
+        DocumentEditPersistence.shared.scheduleManifestCommit(documentId: id, manifest: makeManifest())
     }
 
     private func flushPersistReason(reason _: String) {
         guard editDirty, !isExporting else { return }
-        let manifestJSON = buildManifestJSON()
+        let manifest = makeManifest()
+        let manifestJSON = manifest.jsonString()
         if let id = documentId {
-            DocumentEditPersistence.shared.flushManifestCommit(
-                documentId: id,
-                manifest: DocumentAssetManifest(appliedFilterIndices: appliedFilterIndex)
-            )
+            DocumentEditPersistence.shared.flushManifestCommit(documentId: id, manifest: manifest)
             DocumentService.shared.updateDocumentContent(
                 id: id,
                 name: documentName,
@@ -512,11 +522,20 @@ final class EditViewController: BaseViewController {
         }
     }
 
+    /// 沙盒落盘：baseline + **智能优化层 `filter_1`（只要内存里有云端结果就写）** + 当前选中槽位 `filter_<idx>`。
+    /// 数据库里 `assetManifestJSON` 只记下标；像素全靠此处与 `Documents/Scans/DocAssets/`。
     private func persistSandboxAfterEdit(page: Int) {
         guard let folder = assetFolderId(), page < originalJPEGs.count, page < images.count else { return }
-        let idx = appliedFilterIndex[safe: page] ?? 0
-        DocumentAssetStore.shared.writeBaselineJPEG(folderId: folder, page: page, jpegData: originalJPEGs[page]) { _ in }
         let q = AppConstants.ScanImage.originalJPEGQuality
+        let smartIdx = Self.smartOptimizeFilterIndex
+
+        DocumentAssetStore.shared.writeBaselineJPEG(folderId: folder, page: page, jpegData: originalJPEGs[page]) { _ in }
+
+        if let sm = cloudSmartOptimizeJPEG[safe: page], let smData = sm, !smData.isEmpty {
+            DocumentAssetStore.shared.writeFilterJPEG(folderId: folder, page: page, filterSlot: smartIdx, jpegData: smData) { _ in }
+        }
+
+        let idx = appliedFilterIndex[safe: page] ?? 0
         if let data = images[page].jpegData(compressionQuality: q) ?? images[page].pngData() {
             DocumentAssetStore.shared.writeFilterJPEG(folderId: folder, page: page, filterSlot: idx, jpegData: data) { _ in }
         }
@@ -1045,6 +1064,8 @@ final class EditViewController: BaseViewController {
         exportButton.alpha = 0.7
         showLoading(message: "导出中...")
 
+        DocumentEditPersistence.shared.cancelPendingManifestCommit()
+        manifestRevision += 1
         let manifestJSON = buildManifestJSON()
         if let id = documentId {
             DocumentService.shared.updateDocumentContent(
