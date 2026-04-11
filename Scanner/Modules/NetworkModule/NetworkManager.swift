@@ -197,49 +197,80 @@ final class NetworkManager {
         request(.infoQuery(params: params), completion: completion)
     }
 
-    // MARK: - 4a. 轮询处理结果 (interval 2s, max 15 retries)
+    // MARK: - 4a. 轮询处理结果
 
+    /// 单次 `infoquery` 返回后立即发起下一次；在 `kPollingMaxDuration` 内持续轮询直至完成或失败。
     func pollProcessingResult(
         carduid: String,
         imagepath: String,
         ext: String = kImageExtension,
-        retryCount: Int = 0,
+        startTime: CFAbsoluteTime? = nil,
+        iteration: Int = 0,
         completion: @escaping (Result<InfoQueryResult, Error>) -> Void
     ) {
+        let t0 = startTime ?? CFAbsoluteTimeGetCurrent()
+
         queryProcessingResult(carduid: carduid, imagepath: imagepath, ext: ext) { [weak self] result in
+            guard let self else { return }
+
+            let elapsed = CFAbsoluteTimeGetCurrent() - t0
+            let mayContinue =
+                elapsed < kPollingMaxDuration
+                && iteration < kPollingMaxIterations
+
             switch result {
             case .success(let info):
                 if info.isCompleted {
                     completion(.success(info))
-                } else if info.isProcessing, retryCount < kPollingMaxRetry {
-                    DispatchQueue.global().asyncAfter(deadline: .now() + kPollingInterval) {
-                        self?.pollProcessingResult(
-                            carduid: carduid,
-                            imagepath: imagepath,
-                            ext: ext,
-                            retryCount: retryCount + 1,
-                            completion: completion
-                        )
-                    }
+                    return
+                }
+                if info.isProcessing, mayContinue {
+                    self.enqueuePollProcessingResult(
+                        carduid: carduid,
+                        imagepath: imagepath,
+                        ext: ext,
+                        startTime: t0,
+                        iteration: iteration + 1,
+                        completion: completion
+                    )
                 } else {
                     completion(.failure(NetworkError.pollingTimeout))
                 }
 
             case .failure(let error):
-                if retryCount < kPollingMaxRetry {
-                    DispatchQueue.global().asyncAfter(deadline: .now() + kPollingInterval) {
-                        self?.pollProcessingResult(
-                            carduid: carduid,
-                            imagepath: imagepath,
-                            ext: ext,
-                            retryCount: retryCount + 1,
-                            completion: completion
-                        )
-                    }
+                if mayContinue {
+                    self.enqueuePollProcessingResult(
+                        carduid: carduid,
+                        imagepath: imagepath,
+                        ext: ext,
+                        startTime: t0,
+                        iteration: iteration + 1,
+                        completion: completion
+                    )
                 } else {
                     completion(.failure(error))
                 }
             }
+        }
+    }
+
+    private func enqueuePollProcessingResult(
+        carduid: String,
+        imagepath: String,
+        ext: String,
+        startTime: CFAbsoluteTime,
+        iteration: Int,
+        completion: @escaping (Result<InfoQueryResult, Error>) -> Void
+    ) {
+        DispatchQueue.global().async { [weak self] in
+            self?.pollProcessingResult(
+                carduid: carduid,
+                imagepath: imagepath,
+                ext: ext,
+                startTime: startTime,
+                iteration: iteration,
+                completion: completion
+            )
         }
     }
 

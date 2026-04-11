@@ -674,7 +674,6 @@ final class EditViewController: BaseViewController {
 
         guard let original = UIImage(data: originalJPEGs[currentPage]) else { return }
 
-        showLoading(message: "处理中…")
         let filterType = filters[idx]
         let page = currentPage
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -682,7 +681,6 @@ final class EditViewController: BaseViewController {
                 ImageFilterManager.shared.apply(filterType, to: original)
             }
             DispatchQueue.main.async {
-                self?.hideLoading()
                 guard let self, page == self.currentPage else { return }
                 self.images[page] = result
                 self.collectionView.reloadItems(at: [IndexPath(item: page, section: 0)])
@@ -705,7 +703,6 @@ final class EditViewController: BaseViewController {
 
         guard let original = UIImage(data: originalJPEGs[page]) else { return }
 
-        hideLoading()
         smartOptimizeProcessingPage = page
         let ip = IndexPath(item: page, section: 0)
         UIView.performWithoutAnimation {
@@ -771,14 +768,12 @@ final class EditViewController: BaseViewController {
         }
 
         guard let original = UIImage(data: originalJPEGs[page]) else { return }
-        showLoading(message: "处理中…")
         let filterType = filters[idx]
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result = autoreleasepool {
                 ImageFilterManager.shared.apply(filterType, to: original)
             }
             DispatchQueue.main.async {
-                self?.hideLoading()
                 guard let self, page < self.images.count else { return }
                 self.images[page] = result
                 self.collectionView.reloadItems(at: [IndexPath(item: page, section: 0)])

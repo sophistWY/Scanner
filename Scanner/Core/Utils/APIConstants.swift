@@ -48,8 +48,11 @@ public let kAppStoreReviewURL = "itms-apps://itunes.apple.com/app/id/6747080747?
 
 // MARK: - Polling Config
 
-public let kPollingInterval: TimeInterval = 2.0
-public let kPollingMaxRetry: Int = 15
+/// 处理结果轮询的最长等待时间（秒）。超时后 `pollingTimeout`。
+/// 单次 `infoquery` 返回后立刻发起下一次，在总时长内尽可能快拿到结果。
+public let kPollingMaxDuration: TimeInterval = 30
+/// 异常保护：防止死循环。需大于「30s ÷ 单次极短 RTT」量级，避免先撞次数再撞时间。
+public let kPollingMaxIterations: Int = 2000
 
 // MARK: - Keychain
 

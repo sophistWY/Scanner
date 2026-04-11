@@ -74,6 +74,16 @@ extension UIImage {
         }
     }
 
+    /// 与 `UIImageView` 以 `scaleAspectFit` 绘制时一致的宽高比（考虑 `imageOrientation`）。
+    var sizeForAspectFitLayout: CGSize {
+        switch imageOrientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            return CGSize(width: size.height, height: size.width)
+        default:
+            return size
+        }
+    }
+
     /// 顺时针旋转 90°（用于裁剪页）。
     func rotatedClockwise90() -> UIImage {
         let fixed = fixOrientation()

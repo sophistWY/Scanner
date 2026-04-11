@@ -24,6 +24,7 @@ final class PageImageCell: UICollectionViewCell {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFit
         iv.backgroundColor = .black
+        iv.clipsToBounds = true
         return iv
     }()
 
@@ -36,7 +37,7 @@ final class PageImageCell: UICollectionViewCell {
         contentView.backgroundColor = .clear
         contentView.addSubview(cardView)
         cardView.addSubview(imageView)
-        cardView.addSubview(scanOverlay)
+        imageView.addSubview(scanOverlay)
         imageView.snp.makeConstraints { $0.edges.equalToSuperview() }
         scanOverlay.isHidden = true
         scanOverlay.clipsToBounds = true
@@ -48,16 +49,22 @@ final class PageImageCell: UICollectionViewCell {
         layoutScanOverlayToImageContent()
     }
 
-    /// 与 `imageView` 的 `scaleAspectFit` 内容矩形一致（按图片宽高比计算），扫描线仅覆盖真实图片区域。
+    /// 扫描层作为 `imageView` 子视图，frame 为图片在 `scaleAspectFit` 下的内容矩形（与绘制区域一致）。
     private func layoutScanOverlayToImageContent() {
+        guard let img = imageView.image else {
+            scanOverlay.frame = .zero
+            return
+        }
         let ivBounds = imageView.bounds
         guard ivBounds.width > 1, ivBounds.height > 1 else {
             scanOverlay.frame = .zero
             return
         }
-        let imageSize = imageView.image?.size ?? ivBounds.size
-        let content = Self.aspectFitContentRect(imageSize: imageSize, in: ivBounds)
-        scanOverlay.frame = imageView.convert(content, to: cardView)
+        let content = Self.aspectFitContentRect(
+            imageSize: img.sizeForAspectFitLayout,
+            in: ivBounds
+        )
+        scanOverlay.frame = content.integral
     }
 
     private static func aspectFitContentRect(imageSize: CGSize, in bounds: CGRect) -> CGRect {
@@ -97,11 +104,12 @@ final class PageImageCell: UICollectionViewCell {
         }
     }
 
-    /// 智能优化请求中：扫描线盖在实际图片区域（编辑页会禁用交互）。
+    /// 智能优化请求中：扫描动画仅盖在图片内容区。
     func setSmartOptimizeProcessing(_ active: Bool) {
         if active {
             setNeedsLayout()
             layoutIfNeeded()
+            imageView.layoutIfNeeded()
             scanOverlay.startAnimating()
         } else {
             scanOverlay.stopAnimating()
