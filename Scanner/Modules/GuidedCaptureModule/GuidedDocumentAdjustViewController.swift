@@ -271,6 +271,17 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
 
         imageView.image = displayImage
         updateFilterSelectionUI()
+
+        // PDF 仅一页合成图；正反面原图在冷启动后从 DocAssets 恢复，否则「调整」会退化成单张裁剪。
+        if kind.stepCount == 2, let id = documentId {
+            let folder = "\(id)"
+            if let d0 = DocumentAssetStore.shared.readGuidedCardRawDataIfPresent(folderId: folder, sideIndex: 0),
+               let d1 = DocumentAssetStore.shared.readGuidedCardRawDataIfPresent(folderId: folder, sideIndex: 1),
+               let img0 = UIImage(data: d0),
+               let img1 = UIImage(data: d1) {
+                rawCaptureImages = [img0, img1]
+            }
+        }
     }
 
     override var prefersCustomNavigationBarHidden: Bool { false }
@@ -695,6 +706,13 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
         if let data = displayImage.jpegData(compressionQuality: q) ?? displayImage.pngData() {
             let slot = GuidedAdjustFilter(rawValue: appliedFilterIndex)?.diskSlot ?? 20
             DocumentAssetStore.shared.writeFilterJPEG(folderId: folder, page: 0, filterSlot: slot, jpegData: data) { _ in }
+        }
+        if kind.stepCount == 2, rawCaptureImages.count >= 2 {
+            for i in 0..<2 {
+                let img = rawCaptureImages[i].constrainedToMaxPixelLength(AppConstants.ScanImage.maxPixelLength)
+                guard let data = img.jpegData(compressionQuality: q) ?? img.pngData() else { continue }
+                DocumentAssetStore.shared.writeGuidedCardRawJPEG(folderId: folder, sideIndex: i, jpegData: data) { _ in }
+            }
         }
     }
 

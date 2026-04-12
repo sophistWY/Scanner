@@ -2,7 +2,8 @@
 //  DocumentAssetStore.swift
 //  Scanner
 //
-//  Per-document serial writes under Documents/Scans/DocAssets/<folderId>/page_<n>/.
+//  Per-document serial writes under Documents/Scans/DocAssets/<folderId>/page_<n>/
+//  plus optional `guided_raw_0.jpg` / `guided_raw_1.jpg` for guided 身份证/银行卡 cold-start restore.
 //
 
 import Foundation
@@ -91,6 +92,46 @@ final class DocumentAssetStore {
         let url = pageDirectory(folderId: folderId, page: page).appendingPathComponent("filter_\(filterSlot).jpg")
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return try? Data(contentsOf: url)
+    }
+
+    /// Persists front/back captures for guided two-step card flows; PDF only stores the A4 composite.
+    func writeGuidedCardRawJPEG(folderId: String, sideIndex: Int, jpegData: Data, completion: @escaping (Bool) -> Void) {
+        guard (0...1).contains(sideIndex) else {
+            DispatchQueue.main.async { completion(false) }
+            return
+        }
+        let q = queue(for: folderId)
+        q.async { [self] in
+            let ok = self.writeRootFileSync(folderId: folderId, fileName: "guided_raw_\(sideIndex).jpg", data: jpegData)
+            DispatchQueue.main.async { completion(ok) }
+        }
+    }
+
+    /// Sync read when reopening guided 身份证/银行卡 after cold start.
+    func readGuidedCardRawDataIfPresent(folderId: String, sideIndex: Int) -> Data? {
+        guard (0...1).contains(sideIndex) else { return nil }
+        let url = folderURL(folderId: folderId).appendingPathComponent("guided_raw_\(sideIndex).jpg")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try? Data(contentsOf: url)
+    }
+
+    private func writeRootFileSync(folderId: String, fileName: String, data: Data) -> Bool {
+        let dir = folderURL(folderId: folderId)
+        file.ensureDirectoryExists(at: dir)
+        let url = dir.appendingPathComponent(fileName)
+        let tmp = dir.appendingPathComponent(".\(fileName).tmp")
+        do {
+            try data.write(to: tmp, options: .atomic)
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+            try FileManager.default.moveItem(at: tmp, to: url)
+            return true
+        } catch {
+            Logger.shared.log("DocumentAssetStore root write failed: \(error.localizedDescription)", level: .error)
+            try? FileManager.default.removeItem(at: tmp)
+            return false
+        }
     }
 
     private func writeFileSync(folderId: String, page: Int, fileName: String, data: Data) -> Bool {

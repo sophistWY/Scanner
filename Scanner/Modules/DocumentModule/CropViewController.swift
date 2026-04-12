@@ -10,11 +10,14 @@ import UIKit
 import SnapKit
 
 /// 裁剪页底部白底操作区高度（页码 + 旋转/确认），与 `CropViewController` 内布局联动。
+/// 多图时含 ‹ 页码 › 行，需额外高度，否则 `toolsRow` 过矮会导致按钮布局/点击异常。
 enum CropViewBottomBarLayout {
-    static let height: CGFloat = 160
+    static func height(pageCount: Int) -> CGFloat {
+        pageCount > 1 ? 210 : 160
+    }
 }
 
-final class CropViewController: BaseViewController, UIScrollViewDelegate {
+final class CropViewController: BaseViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
 
     private let pageCount: Int
     private let initialPageIndex: Int
@@ -88,9 +91,9 @@ final class CropViewController: BaseViewController, UIScrollViewDelegate {
         /// 页码区与底栏顶
         static let topInset: CGFloat = 18
         /// 页码区域底边与下方旋转/确认按钮区域顶边的间距（多图）
-        static let pagerToToolsSpacing: CGFloat = 10
+        static let pagerToToolsSpacing: CGFloat = 20
         /// 按钮区底到安全区底（Home 条上方留白）
-        static let safeBottomInset: CGFloat = 34
+        static let safeBottomInset: CGFloat = 24
         static let horizontalInset: CGFloat = 15
     }
 
@@ -105,7 +108,8 @@ final class CropViewController: BaseViewController, UIScrollViewDelegate {
         let s = UIStackView()
         s.axis = .horizontal
         s.distribution = .fillEqually
-        s.alignment = .center
+        // 竖直方向撑满 toolsRow，避免仅中间一条可点、上下空白被其它层抢走触摸
+        s.alignment = .fill
         s.spacing = 0
         return s
     }()
@@ -164,6 +168,14 @@ final class CropViewController: BaseViewController, UIScrollViewDelegate {
         let v = UIView()
         v.backgroundColor = .clear
         return v
+    }()
+
+    /// 点在「旋转」文案、堆栈留白或左列空白时，子视图若不处理会被 UIStackView 吃掉；整列补充点击与按钮并存（手势不抢图标按钮的触摸）。
+    private lazy var leftToolRegionRotateTap: UITapGestureRecognizer = {
+        let g = UITapGestureRecognizer(target: self, action: #selector(rotateTapped))
+        g.cancelsTouchesInView = false
+        g.delegate = self
+        return g
     }()
 
     init(images: [UIImage], initialPageIndex: Int = 0, onCrop: @escaping ([UIImage], Bool) -> Void) {
@@ -226,6 +238,7 @@ final class CropViewController: BaseViewController, UIScrollViewDelegate {
 
         leftToolRegion.addSubview(rotateColumnStack)
         rightToolRegion.addSubview(confirmButton)
+        leftToolRegion.addGestureRecognizer(leftToolRegionRotateTap)
 
         // 仅多图时展示 ‹ 页码 ›；单张裁剪不显示页码行。
         let showPager = pageCount > 1
@@ -262,14 +275,14 @@ final class CropViewController: BaseViewController, UIScrollViewDelegate {
 
         bottomBar.snp.makeConstraints { make in
             make.leading.trailing.bottom.equalToSuperview()
-            make.height.equalTo(CropViewBottomBarLayout.height)
+            make.height.equalTo(CropViewBottomBarLayout.height(pageCount: pageCount))
         }
 
-        // 多图：页码行高度由 pagerStack 内容决定（顶对齐，不用 center，避免「页码区」与按钮区间距被行内留白吃掉）
+        // 多图：必须把 pagerStack 四边钉在 pagerRow 上，否则 pagerRow 高度为 0，bounds 不包住 ‹ ›，
+        // hitTest 会漏掉子视图，触摸落到透明 bottomBar 上被吃掉（上一张/下一张/确认都无响应）。
         pagerRow.snp.makeConstraints { make in
-//            make.leading.trailing.equalToSuperview()
             make.centerX.equalToSuperview()
-            make.bottom.equalTo(toolsRow.snp.top ).offset(-BottomChrome.topInset)
+            make.top.equalTo(10)
             if pageCount == 1 {
                 make.height.equalTo(0)
             }
@@ -277,10 +290,7 @@ final class CropViewController: BaseViewController, UIScrollViewDelegate {
 
         if pageCount > 1 {
             pagerStack.snp.makeConstraints { make in
-                make.top.leading.trailing.equalToSuperview()
-            }
-            pagerRow.snp.makeConstraints { make in
-                make.bottom.equalTo(toolsRow.snp.top ).offset(-BottomChrome.topInset)
+                make.edges.equalToSuperview()
             }
         } else {
             pagerStack.snp.makeConstraints { make in
@@ -300,7 +310,7 @@ final class CropViewController: BaseViewController, UIScrollViewDelegate {
         toolsRow.snp.makeConstraints { make in
             make.leading.equalToSuperview().offset(BottomChrome.horizontalInset)
             make.trailing.equalToSuperview().offset(-BottomChrome.horizontalInset)
-//            make.top.equalTo(pagerRow.snp.bottom).offset(pageCount > 1 ? BottomChrome.pagerToToolsSpacing : 0)
+            make.top.equalTo(pagerRow.snp.bottom).offset(pageCount > 1 ? BottomChrome.pagerToToolsSpacing : 0)
             // 与底栏同宽白底一起延伸到底；按钮区底边落在 Home 条上方足够远处
             make.bottom.equalTo(bottomBar.safeAreaLayoutGuide.snp.bottom).offset(-BottomChrome.safeBottomInset)
         }
@@ -328,6 +338,7 @@ final class CropViewController: BaseViewController, UIScrollViewDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         view.bringSubviewToFront(bottomBar)
+        view.bringSubviewToFront(customNavigationBar)
 
         let w = pagingScrollView.bounds.width
         let h = pagingScrollView.bounds.height
@@ -512,6 +523,18 @@ final class CropViewController: BaseViewController, UIScrollViewDelegate {
                 self.dismissOrPopFromCropFlow()
             }
         }
+    }
+
+    // MARK: - UIGestureRecognizerDelegate
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === leftToolRegionRotateTap else { return true }
+        var v: UIView? = touch.view
+        while let node = v {
+            if node === rotateIconButton { return false }
+            v = node.superview
+        }
+        return true
     }
 
     private func perspectiveCrop(pageIndex: Int) -> UIImage? {

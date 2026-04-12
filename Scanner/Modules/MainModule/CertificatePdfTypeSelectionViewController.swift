@@ -64,7 +64,16 @@ final class CertificatePdfTypeSelectionViewController: BaseViewController {
     }
 
     private func loadList() {
-        showLoading(message: nil)
+        let cached = PdfTypeListCache.load()
+        if let cached {
+            items = cached
+            collectionView.reloadData()
+        }
+
+        if cached == nil {
+            showLoading(message: nil)
+        }
+
         NetworkManager.shared.fetchPdfTypeList { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -74,9 +83,11 @@ final class CertificatePdfTypeSelectionViewController: BaseViewController {
                     self.items = list
                     self.collectionView.reloadData()
                 case .failure:
-                    self.items = PdfTypeItem.offlineFallback
-                    self.collectionView.reloadData()
-                    HUD.shared.showToast("配置加载失败，已使用本地列表")
+                    if self.items.isEmpty {
+                        self.items = PdfTypeItem.offlineFallback
+                        self.collectionView.reloadData()
+                        HUD.shared.showToast("配置加载失败，已使用本地列表")
+                    }
                 }
             }
         }

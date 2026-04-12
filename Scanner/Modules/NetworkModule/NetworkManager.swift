@@ -301,7 +301,38 @@ final class NetworkManager {
     func fetchPdfTypeList(
         completion: @escaping (Result<[PdfTypeItem], Error>) -> Void
     ) {
-        request(.configGet(name: "pdftype.json"), completion: completion)
+        if !NetworkStatusMonitor.shared.isReachable {
+            completion(.failure(NetworkError.networkUnavailable))
+            return
+        }
+
+        provider.request(.configGet(name: "pdftype.json")) { result in
+            switch result {
+            case .success(let response):
+                do {
+                    let apiResp = try JSONDecoder().decode(
+                        APIResponse<[PdfTypeItem]>.self,
+                        from: response.data
+                    )
+                    if apiResp.isSuccess, let data = apiResp.data {
+                        PdfTypeListCache.save(responseData: response.data)
+                        completion(.success(data))
+                    } else {
+                        completion(.failure(NetworkError.serverError(
+                            code: apiResp.code,
+                            message: apiResp.info ?? ""
+                        )))
+                    }
+                } catch {
+                    Logger.shared.log("Decoding error: \(error)", level: .error)
+                    completion(.failure(NetworkError.decodingError))
+                }
+
+            case .failure(let moyaError):
+                Logger.shared.log("Network error: \(moyaError.localizedDescription)", level: .error)
+                completion(.failure(moyaError))
+            }
+        }
     }
 
     // MARK: - Generic Request
