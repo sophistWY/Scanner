@@ -20,6 +20,8 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
     weak var guidedAdjustDelegate: GuidedDocumentAdjustViewControllerDelegate?
 
     private let kind: GuidedDocumentKind
+    /// 来自配置列表时非 nil；身份证/银行卡为双面 + 原浮层文案，其它多为单张；上传均带配置里的 `pdftype`。
+    private let pdfTypeListItem: PdfTypeItem?
     private var currentStepIndex: Int = 0
     /// Normalized full-frame originals only; server processing runs on 「调整图片」.
     private var capturedOriginals: [UIImage] = []
@@ -123,12 +125,39 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
 
     init(kind: GuidedDocumentKind) {
         self.kind = kind
+        self.pdfTypeListItem = nil
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .fullScreen
+    }
+
+    /// 首页证件类型列表选中后进入：身份证/银行卡与旧版双面流程一致，其余单张；`pdftype` 由配置下发。
+    init(pdfTypeListItem: PdfTypeItem) {
+        self.pdfTypeListItem = pdfTypeListItem
+        self.kind = pdfTypeListItem.guidedCaptureKind ?? .businessLicense
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    private var effectiveCaptureSteps: [GuidedCaptureStep] {
+        if let item = pdfTypeListItem {
+            if let gk = item.guidedCaptureKind {
+                return gk.captureSteps
+            }
+            return [
+                GuidedCaptureStep(
+                    stepIndex: 0,
+                    title: item.name,
+                    bottomHint: "请按提示，线框内拍摄",
+                    overlayAssetName: "frame_business_license_diploma",
+                    showsLandscapeHint: false
+                )
+            ]
+        }
+        return kind.captureSteps
+    }
 
     override var prefersCustomNavigationBarHidden: Bool { true }
 
@@ -233,7 +262,7 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
     }
 
     private func refreshStepUI() {
-        let steps = kind.captureSteps
+        let steps = effectiveCaptureSteps
         guard currentStepIndex < steps.count else { return }
         let step = steps[currentStepIndex]
         stepTitleLabel.text = step.title
@@ -304,7 +333,7 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
         capturedOriginals.append(normalized)
         isProcessing = false
         shutterButton.isEnabled = true
-        let steps = kind.captureSteps
+        let steps = effectiveCaptureSteps
         if capturedOriginals.count >= steps.count {
             finishCaptureFlow()
         } else {
@@ -314,9 +343,20 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
     }
 
     private func finishCaptureFlow() {
-        let name = "\(kind.defaultDocumentNamePrefix)_\(Date().formatted(style: .short))"
         let originals = capturedOriginals
-        let adjust = GuidedDocumentAdjustViewController(originalImages: originals, documentName: name, kind: kind)
+        let adjust: GuidedDocumentAdjustViewController
+        if let item = pdfTypeListItem {
+            let name = "\(item.name)_\(Date().formatted(style: .short))"
+            adjust = GuidedDocumentAdjustViewController(
+                originalImages: originals,
+                documentName: name,
+                kind: kind,
+                serverPdfType: item.pdftype
+            )
+        } else {
+            let name = "\(kind.defaultDocumentNamePrefix)_\(Date().formatted(style: .short))"
+            adjust = GuidedDocumentAdjustViewController(originalImages: originals, documentName: name, kind: kind)
+        }
         adjust.adjustDelegate = guidedAdjustDelegate
         navigationController?.pushViewController(adjust, animated: true)
         resetCaptureSessionToInitialState()
@@ -376,6 +416,16 @@ extension GuidedDocumentCaptureViewController: PHPickerViewControllerDelegate {
                 self.handleCapturedImage(img)
             }
         }
+    }
+}
+
+private extension PdfTypeItem {
+    /// 与旧版首页证件入口一致：身份证 / 银行卡为双面及专用浮层；名称需含「银行卡」「身份证」以匹配接口文案。
+    var guidedCaptureKind: GuidedDocumentKind? {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if n.contains("银行卡") { return .bankCard }
+        if n.contains("身份证") { return .nationalID }
+        return nil
     }
 }
 

@@ -7,6 +7,7 @@
 
 import UIKit
 import SnapKit
+import Photos
 
 protocol GuidedDocumentAdjustViewControllerDelegate: AnyObject {
     func guidedAdjustViewController(_ vc: GuidedDocumentAdjustViewController, didFinishWith images: [UIImage])
@@ -43,6 +44,8 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
     weak var adjustDelegate: GuidedDocumentAdjustViewControllerDelegate?
 
     private let kind: GuidedDocumentKind
+    /// 配置列表下发的 `pdftype`；非 nil 时上传与轮询使用该值（不再用 `kind.stsPdfType`）。
+    private let serverPdfType: String?
     private var documentName: String
     private var documentId: Int64?
     private var pendingAssetFolderId: String = ""
@@ -54,15 +57,19 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
     private var manifestRevision: Int64 = 0
     private var editDirty = false
     private var isExporting = false
+    /// 处理完成后自动写入数据库（与导出共用 DocumentService，避免并行重复创建）。
+    private var isPersistingToDatabase = false
     private var hasExportedSuccessfully = false
 
     private var pendingPDFURL: URL?
 
-    /// 拍摄进入时的原图序列（仅内存）；裁剪后可能被替换为单张。
+    /// 拍摄进入时的原图序列（仅内存）；双证流程始终保留正反面原图供「调整」裁剪。
     private var rawCaptureImages: [UIImage] = []
     /// 拍摄完成进入本页后，先展示 A4 合成原图再跑接口。
     private var needsInitialServerProcessing = false
     private var isServerProcessing = false
+    /// 接口顺序处理时是否显示全屏 HUD（重裁剪后需要；首次进入仅扫描线动画）。
+    private var serverSequentialRunShowsLoadingHUD = false
 
     private lazy var scrollView: UIScrollView = {
         let s = UIScrollView()
@@ -147,8 +154,9 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
     // MARK: - Init
 
     /// 拍摄完成：仅带原图进入，本页合成 A4、扫描动画并调接口。
-    init(originalImages: [UIImage], documentName: String, kind: GuidedDocumentKind) {
+    init(originalImages: [UIImage], documentName: String, kind: GuidedDocumentKind, serverPdfType: String? = nil) {
         self.kind = kind
+        self.serverPdfType = serverPdfType
         self.documentName = documentName
         self.displayImage = UIImage()
         self.originalJPEG = Data()
@@ -161,6 +169,7 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
 
     init(compositeImage: UIImage, documentName: String, kind: GuidedDocumentKind) {
         self.kind = kind
+        self.serverPdfType = nil
         self.documentName = documentName
         let q = AppConstants.ScanImage.originalJPEGQuality
         let n = compositeImage.constrainedToMaxPixelLength(AppConstants.ScanImage.maxPixelLength)
@@ -173,6 +182,7 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
 
     init(existingDocument document: DocumentModel, kind: GuidedDocumentKind) {
         self.kind = kind
+        self.serverPdfType = DocumentAssetManifest.parse(document.assetManifestJSON)?.serverPdfType
         self.documentName = document.name
         self.documentId = document.id
         self.loadedExistingDocument = document
@@ -287,6 +297,7 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
         view.addSubview(bottomToolbar)
         bottomToolbar.addArrangedSubview(filterStack)
         bottomToolbar.addArrangedSubview(editCircleButton)
+
         filterStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
         editCircleButton.setContentHuggingPriority(.required, for: .horizontal)
         view.addSubview(exportButton)
@@ -406,6 +417,11 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
         }
     }
 
+    /// 服务端增强后的合成图（与 `originalJPEG` 一致）；黑白/灰度等滤镜始终在此之上处理，而非拍摄原图。
+    private var serverEnhancedCompositeForFilters: Data {
+        originalJPEG
+    }
+
     private func composeFromRawImages() -> UIImage? {
         let layout = kind.a4LayoutKind
         switch layout {
@@ -421,31 +437,71 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
     private func runInitialServerProcessing() {
         guard needsInitialServerProcessing, !rawCaptureImages.isEmpty else { return }
         needsInitialServerProcessing = false
+        serverSequentialRunShowsLoadingHUD = false
+        runSequentialServerProcessingFromCurrentRaw()
+    }
+
+    private func processCaptureStep(at index: Int, completion: @escaping (Result<UIImage, Error>) -> Void) {
+        if let pdf = serverPdfType, !pdf.isEmpty {
+            let imgtype: String? = kind.stepCount == 2 ? (index == 0 ? "1" : "2") : nil
+            GuidedDocumentAPI.processImage(
+                rawCaptureImages[index],
+                pdfType: pdf,
+                imgtype: imgtype,
+                progress: nil,
+                completion: completion
+            )
+        } else {
+            GuidedDocumentAPI.processImage(
+                rawCaptureImages[index],
+                kind: kind,
+                stepIndex: index,
+                progress: nil,
+                completion: completion
+            )
+        }
+    }
+
+    /// 根据当前 `rawCaptureImages` 顺序调用接口并合成（首次进入与裁剪后复用）。
+    private func runSequentialServerProcessingFromCurrentRaw() {
+        guard !rawCaptureImages.isEmpty else { return }
         isServerProcessing = true
         exportButton.isEnabled = false
         setToolbarInteractionEnabled(false)
         scanOverlay.startAnimating()
+        if serverSequentialRunShowsLoadingHUD {
+            showLoading(message: "处理中…")
+        }
 
         let steps = kind.stepCount
         var processed: [UIImage] = []
 
         func runStep(_ index: Int) {
             if index >= steps {
-                finishInitialProcessing(with: processed)
+                DispatchQueue.main.async {
+                    self.finishInitialProcessing(with: processed)
+                }
                 return
             }
-            GuidedDocumentAPI.processImage(rawCaptureImages[index], kind: kind, stepIndex: index) { [weak self] result in
+            processCaptureStep(at: index) { [weak self] result in
                 guard let self else { return }
                 switch result {
                 case .success(let img):
-                    processed.append(img)
-                    runStep(index + 1)
+                    DispatchQueue.main.async {
+                        processed.append(img)
+                        runStep(index + 1)
+                    }
                 case .failure(let error):
-                    self.scanOverlay.stopAnimating()
-                    self.isServerProcessing = false
-                    self.exportButton.isEnabled = true
-                    self.setToolbarInteractionEnabled(true)
-                    HUD.shared.showToast((error as? LocalizedError)?.errorDescription ?? "处理失败")
+                    DispatchQueue.main.async {
+                        self.scanOverlay.stopAnimating()
+                        self.isServerProcessing = false
+                        self.exportButton.isEnabled = true
+                        self.setToolbarInteractionEnabled(true)
+                        if self.serverSequentialRunShowsLoadingHUD {
+                            self.hideLoading()
+                        }
+                        HUD.shared.showToast((error as? LocalizedError)?.errorDescription ?? "处理失败")
+                    }
                 }
             }
         }
@@ -462,6 +518,9 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
                 isServerProcessing = false
                 exportButton.isEnabled = true
                 setToolbarInteractionEnabled(true)
+                if serverSequentialRunShowsLoadingHUD {
+                    hideLoading()
+                }
                 HUD.shared.showToast("处理结果不完整")
                 return
             }
@@ -472,6 +531,9 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
                 isServerProcessing = false
                 exportButton.isEnabled = true
                 setToolbarInteractionEnabled(true)
+                if serverSequentialRunShowsLoadingHUD {
+                    hideLoading()
+                }
                 return
             }
             imgs = [f]
@@ -481,6 +543,9 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
             isServerProcessing = false
             exportButton.isEnabled = true
             setToolbarInteractionEnabled(true)
+            if serverSequentialRunShowsLoadingHUD {
+                hideLoading()
+            }
             HUD.shared.showToast("合成失败")
             return
         }
@@ -489,8 +554,13 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
         isServerProcessing = false
         exportButton.isEnabled = true
         setToolbarInteractionEnabled(true)
+        if serverSequentialRunShowsLoadingHUD {
+            hideLoading()
+        }
+        serverSequentialRunShowsLoadingHUD = false
         editDirty = true
         persistSandbox()
+        persistToDatabaseAfterInitialProcessing()
     }
 
     private func applyProcessedComposite(_ composite: UIImage) {
@@ -522,10 +592,10 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
         EditOpenCVQueue.shared.async { [weak self] in
             guard let self else { return }
             let result: UIImage = autoreleasepool {
-                if idx == .original, let img = UIImage(data: self.originalJPEG) {
+                if idx == .original, let img = UIImage(data: self.serverEnhancedCompositeForFilters) {
                     return img
                 }
-                guard let base = UIImage(data: self.originalJPEG) else {
+                guard let base = UIImage(data: self.serverEnhancedCompositeForFilters) else {
                     return self.displayImage
                 }
                 return ImageFilterManager.shared.apply(idx.imageFilterType, to: base)
@@ -544,53 +614,47 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
 
     @objc private func editTapped() {
         guard !isServerProcessing, !isExporting else { return }
-        let base = UIImage(data: originalJPEG) ?? displayImage
+        if rawCaptureImages.count >= 2 {
+            let sources = rawCaptureImages
+            let crop = CropViewController(images: sources, initialPageIndex: 0) { [weak self] croppedSides, didModify in
+                guard didModify else { return }
+                self?.reprocessAfterCrop(croppedSides: croppedSides)
+            }
+            navigationController?.pushViewController(crop, animated: true)
+            return
+        }
+        let base = rawCaptureImages.first ?? UIImage(data: originalJPEG) ?? displayImage
         let crop = CropViewController(image: base) { [weak self] cropped in
-            self?.reprocessAfterCrop(cropped)
+            self?.reprocessAfterCrop(croppedSides: [cropped])
         }
         navigationController?.pushViewController(crop, animated: true)
     }
 
-    private func reprocessAfterCrop(_ cropped: UIImage) {
-        isServerProcessing = true
-        exportButton.isEnabled = false
-        setToolbarInteractionEnabled(false)
-        scanOverlay.startAnimating()
-        showLoading(message: "处理中…")
-
-        GuidedDocumentAPI.processImage(cropped, kind: kind, stepIndex: 0) { [weak self] result in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.hideLoading()
-                self.scanOverlay.stopAnimating()
-                self.isServerProcessing = false
-                self.exportButton.isEnabled = true
-                self.setToolbarInteractionEnabled(true)
-                switch result {
-                case .success(let out):
-                    self.rawCaptureImages = [cropped]
-                    let layout = A4LayoutKind.certificateMargins
-                    guard let composite = A4CompositeRenderer.compose(layout: layout, images: [out]) else {
-                        HUD.shared.showToast("合成失败")
-                        return
-                    }
-                    self.applyProcessedComposite(composite)
-                    self.editDirty = true
-                    self.persistSandbox()
-                    self.markManifestDirty()
-                case .failure(let error):
-                    HUD.shared.showToast((error as? LocalizedError)?.errorDescription ?? "处理失败")
-                }
-            }
+    private func reprocessAfterCrop(croppedSides: [UIImage]) {
+        guard !croppedSides.isEmpty else { return }
+        let q = AppConstants.ScanImage.originalJPEGQuality
+        var nextRaws: [UIImage] = []
+        nextRaws.reserveCapacity(croppedSides.count)
+        for img in croppedSides {
+            let n = img.constrainedToMaxPixelLength(AppConstants.ScanImage.maxPixelLength)
+            guard let data = n.jpegData(compressionQuality: q) ?? n.pngData() else { continue }
+            nextRaws.append(UIImage(data: data) ?? n)
         }
+        guard !nextRaws.isEmpty else { return }
+        rawCaptureImages = nextRaws
+
+        appliedFilterIndex = 0
+        updateFilterSelectionUI()
+        serverSequentialRunShowsLoadingHUD = true
+        runSequentialServerProcessingFromCurrentRaw()
     }
 
     private func applyFilterSync(_ f: GuidedAdjustFilter) {
-        if f == .original, let img = UIImage(data: originalJPEG) {
+        if f == .original, let img = UIImage(data: serverEnhancedCompositeForFilters) {
             displayImage = img
             return
         }
-        guard let base = UIImage(data: originalJPEG) else { return }
+        guard let base = UIImage(data: serverEnhancedCompositeForFilters) else { return }
         displayImage = ImageFilterManager.shared.apply(f.imageFilterType, to: base)
     }
 
@@ -615,7 +679,8 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
             docAssetsRootRelative: root,
             revision: manifestRevision,
             editorSchema: DocumentAssetManifest.editorSchemaGuidedAdjust,
-            guidedDocumentKind: kind.rawValue
+            guidedDocumentKind: kind.rawValue,
+            serverPdfType: serverPdfType
         )
     }
 
@@ -639,8 +704,73 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
         DocumentEditPersistence.shared.scheduleManifestCommit(documentId: id, manifest: makeManifest())
     }
 
+    /// 服务端顺序处理与合成完成后立即入库；导出 PDF 时仅更新已有记录。
+    private func persistToDatabaseAfterInitialProcessing() {
+        guard !isPersistingToDatabase, !isExporting else { return }
+        DocumentEditPersistence.shared.cancelPendingManifestCommit()
+        manifestRevision += 1
+        let manifestJSON = makeManifestJSON()
+        let snapshotImages = [displayImage]
+
+        isPersistingToDatabase = true
+        exportButton.isEnabled = false
+        exportButton.alpha = 0.7
+        setToolbarInteractionEnabled(false)
+
+        let finishPersistUI: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.isPersistingToDatabase = false
+            self.exportButton.isEnabled = !self.isServerProcessing
+            self.exportButton.alpha = 1
+            self.setToolbarInteractionEnabled(!self.isServerProcessing)
+        }
+
+        if let id = documentId {
+            DocumentService.shared.updateDocumentContent(
+                id: id,
+                name: documentName,
+                images: snapshotImages,
+                assetManifestJSON: manifestJSON
+            ) { [weak self] result in
+                finishPersistUI()
+                guard let self else { return }
+                switch result {
+                case .success:
+                    self.editDirty = false
+                    if let doc = DocumentService.shared.document(byId: id) {
+                        self.adjustDelegate?.guidedAdjustViewController(self, didPersistDocument: doc)
+                    }
+                case .failure(let error):
+                    self.showError(error.errorDescription ?? "保存失败")
+                    self.editDirty = true
+                }
+            }
+            return
+        }
+
+        DocumentService.shared.createDocument(
+            name: documentName,
+            images: snapshotImages,
+            assetManifestJSON: manifestJSON
+        ) { [weak self] result in
+            finishPersistUI()
+            guard let self else { return }
+            switch result {
+            case .success(let created):
+                self.documentId = created.document.id
+                self.editDirty = false
+                DocumentAssetStore.shared.renamePendingFolder(pendingId: self.pendingAssetFolderId, toDocumentId: created.document.id)
+                self.pendingAssetFolderId = ""
+                self.adjustDelegate?.guidedAdjustViewController(self, didPersistDocument: created.document)
+            case .failure(let error):
+                self.showError(error.errorDescription ?? "保存失败")
+                self.editDirty = true
+            }
+        }
+    }
+
     @objc private func exportTapped() {
-        guard !isExporting, !isServerProcessing else { return }
+        guard !isExporting, !isServerProcessing, !isPersistingToDatabase else { return }
         isExporting = true
         exportButton.isEnabled = false
         exportButton.alpha = 0.7
@@ -668,7 +798,11 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
                     }
                     self.adjustDelegate?.guidedAdjustViewController(self, didFinishWith: images)
                     self.adjustDelegate?.guidedAdjustViewController(self, didPersistDocument: doc)
-                    self.navigationController?.pushViewController(ExportResultViewController(document: doc), animated: true)
+                    if self.kind.a4LayoutKind == .cardHalfStack {
+                        self.presentCardImageExportSheet(document: doc, image: self.displayImage)
+                    } else {
+                        self.navigationController?.pushViewController(ExportResultViewController(document: doc), animated: true)
+                    }
                 case .failure(let error):
                     self.showError(error.errorDescription ?? "导出失败")
                 }
@@ -692,7 +826,11 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
                 self.pendingAssetFolderId = ""
                 self.adjustDelegate?.guidedAdjustViewController(self, didFinishWith: images)
                 self.adjustDelegate?.guidedAdjustViewController(self, didPersistDocument: created.document)
-                self.navigationController?.pushViewController(ExportResultViewController(document: created.document), animated: true)
+                if self.kind.a4LayoutKind == .cardHalfStack {
+                    self.presentCardImageExportSheet(document: created.document, image: self.displayImage)
+                } else {
+                    self.navigationController?.pushViewController(ExportResultViewController(document: created.document), animated: true)
+                }
             case .failure(let error):
                 self.showError(error.errorDescription ?? "导出失败")
             }
@@ -701,8 +839,71 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
 
     private func finishExport() {
         isExporting = false
-        exportButton.isEnabled = !isServerProcessing
+        exportButton.isEnabled = !isServerProcessing && !isPersistingToDatabase
         exportButton.alpha = 1
+    }
+
+    private func presentCardImageExportSheet(document _: DocumentModel, image: UIImage) {
+        let sheet = GuidedCardImageExportSheetViewController()
+        sheet.modalPresentationStyle = .overFullScreen
+        sheet.modalTransitionStyle = .coverVertical
+        sheet.onSaveImage = { [weak self] in
+            self?.saveDisplayImageToPhotoLibrary(image)
+        }
+        sheet.onShareImage = { [weak self] in
+            self?.shareDisplayImage(image)
+        }
+        present(sheet, animated: false)
+    }
+
+    private func saveDisplayImageToPhotoLibrary(_ image: UIImage) {
+        PermissionHelper.shared.requestPhotoLibraryAddPermission(from: self) { [weak self] granted in
+            guard let self, granted else { return }
+            self.showLoading(message: "保存中…")
+            PHPhotoLibrary.shared().performChanges({
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
+            }, completionHandler: { success, error in
+                DispatchQueue.main.async {
+                    self.hideLoading()
+                    if success {
+                        HUD.shared.showToast("已保存到相册")
+                    } else {
+                        self.showError(error?.localizedDescription ?? "保存失败")
+                    }
+                }
+            })
+        }
+    }
+
+    private func shareDisplayImage(_ image: UIImage) {
+        let q = AppConstants.ScanImage.originalJPEGQuality
+        guard let data = image.jpegData(compressionQuality: q) ?? image.pngData() else {
+            showError("无法生成分享文件")
+            return
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("guided_export_\(UUID().uuidString).jpg")
+        do {
+            try data.write(to: url)
+        } catch {
+            showError(error.localizedDescription)
+            return
+        }
+        showLoading()
+        let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        activityVC.completionWithItemsHandler = { [weak self] _, _, _, _ in
+            self?.hideLoading()
+            try? FileManager.default.removeItem(at: url)
+        }
+        if let popover = activityVC.popoverPresentationController {
+            popover.sourceView = exportButton
+            popover.sourceRect = exportButton.bounds
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.present(activityVC, animated: true) { [weak self] in
+                self?.hideLoading()
+            }
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {

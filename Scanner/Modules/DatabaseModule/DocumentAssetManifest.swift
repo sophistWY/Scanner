@@ -27,6 +27,8 @@ struct DocumentAssetManifest: Equatable {
     /// When `editorSchema == guidedAdjust`, which guided editor to open (`GuidedDocumentKind.rawValue`).
     var editorSchema: String?
     var guidedDocumentKind: String?
+    /// 配置证件列表中的 `pdftype`，重裁剪后上传需带同一值。
+    var serverPdfType: String?
 
     init(
         version: Int = DocumentAssetManifest.currentVersion,
@@ -34,7 +36,8 @@ struct DocumentAssetManifest: Equatable {
         docAssetsRootRelative: String? = nil,
         revision: Int64 = 0,
         editorSchema: String? = nil,
-        guidedDocumentKind: String? = nil
+        guidedDocumentKind: String? = nil,
+        serverPdfType: String? = nil
     ) {
         self.version = version
         self.appliedFilterIndices = appliedFilterIndices
@@ -42,6 +45,7 @@ struct DocumentAssetManifest: Equatable {
         self.revision = revision
         self.editorSchema = editorSchema
         self.guidedDocumentKind = guidedDocumentKind
+        self.serverPdfType = serverPdfType
     }
 
     static func empty(pageCount: Int) -> DocumentAssetManifest {
@@ -79,6 +83,7 @@ extension DocumentAssetManifest: Codable {
         case pageAssetRoots
         case editorSchema
         case guidedDocumentKind
+        case serverPdfType
     }
 
     init(from decoder: Decoder) throws {
@@ -89,6 +94,7 @@ extension DocumentAssetManifest: Codable {
         revision = try c.decodeIfPresent(Int64.self, forKey: .revision) ?? 0
         editorSchema = try c.decodeIfPresent(String.self, forKey: .editorSchema)
         guidedDocumentKind = try c.decodeIfPresent(String.self, forKey: .guidedDocumentKind)
+        serverPdfType = try c.decodeIfPresent(String.self, forKey: .serverPdfType)
         _ = try c.decodeIfPresent([String].self, forKey: .pageAssetRoots)
     }
 
@@ -100,6 +106,7 @@ extension DocumentAssetManifest: Codable {
         try c.encode(revision, forKey: .revision)
         try c.encodeIfPresent(editorSchema, forKey: .editorSchema)
         try c.encodeIfPresent(guidedDocumentKind, forKey: .guidedDocumentKind)
+        try c.encodeIfPresent(serverPdfType, forKey: .serverPdfType)
     }
 }
 

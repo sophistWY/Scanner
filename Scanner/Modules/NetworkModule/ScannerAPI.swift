@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import Alamofire
 import Moya
 
 enum ScannerAPI {
@@ -17,6 +18,8 @@ enum ScannerAPI {
     case language
     /// 6. 裁剪上传 - 直接请求 (plain)
     case cropUpload(params: [String: Any])
+    /// 7. 通用配置（如证件类型列表）
+    case configGet(name: String)
 }
 
 extension ScannerAPI: TargetType {
@@ -37,11 +40,15 @@ extension ScannerAPI: TargetType {
         case .infoQuery:     return kPathInfoQuery
         case .language:      return kPathLanguage
         case .cropUpload:    return kPathSTSUpload
+        case .configGet:     return kPathConfigGet
         }
     }
 
     var method: Moya.Method {
-        return .get
+        switch self {
+        case .configGet: return .post
+        default: return .get
+        }
     }
 
     var task: Moya.Task {
@@ -75,11 +82,25 @@ extension ScannerAPI: TargetType {
                 parameters: params,
                 encoding: URLEncoding.queryString
             )
+
+        case .configGet(let name):
+            return .requestParameters(
+                parameters: ["name": name],
+                encoding: JSONEncoding.default
+            )
         }
     }
 
     var headers: [String: String]? {
-        return ["Accept": "application/json"]
+        switch self {
+        case .configGet:
+            return [
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+            ]
+        default:
+            return ["Accept": "application/json"]
+        }
     }
 
     var validationType: ValidationType {

@@ -152,19 +152,25 @@ final class SubscriptionViewController: BaseViewController {
         }
     }
 
-    override func bindViewModel() {
-        Task { @MainActor in
-            _ = try? await ApplePayManager.shared.loadProducts()
-            let priceUnit = ApplePayManager.shared.displayPriceWithSubscriptionPeriodUnit(
-                for: ApplePayManager.shared.defaultSubscriptionProductId
-            )
-            updateDescriptionAttributedText(priceWithPeriodUnit: priceUnit)
-        }
-    }
-
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.interactivePopGestureRecognizer?.isEnabled = false
+        refreshSubscriptionProductsFromStore()
+    }
+
+    /// 每次进入订阅页拉取最新商品信息（含从协议页返回、再次弹出订阅等场景）。
+    private func refreshSubscriptionProductsFromStore() {
+        Task { @MainActor in
+            do {
+                _ = try await ApplePayManager.shared.loadProducts()
+                let priceUnit = ApplePayManager.shared.displayPriceWithSubscriptionPeriodUnit(
+                    for: ApplePayManager.shared.defaultSubscriptionProductId
+                )
+                updateDescriptionAttributedText(priceWithPeriodUnit: priceUnit)
+            } catch {
+                updateDescriptionAttributedText(priceWithPeriodUnit: nil)
+            }
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {

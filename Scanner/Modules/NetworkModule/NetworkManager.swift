@@ -296,6 +296,14 @@ final class NetworkManager {
         request(.cropUpload(params: params), completion: completion)
     }
 
+    // MARK: - 7. 证件类型配置
+
+    func fetchPdfTypeList(
+        completion: @escaping (Result<[PdfTypeItem], Error>) -> Void
+    ) {
+        request(.configGet(name: "pdftype.json"), completion: completion)
+    }
+
     // MARK: - Generic Request
 
     private func request<T: Decodable>(

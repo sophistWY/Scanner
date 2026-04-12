@@ -166,16 +166,10 @@ final class HomeViewController: BaseViewController {
     }
 
     @objc private func scanCertificateTapped() {
-        showActionSheet(
-            title: "选择证件类型",
-            actions: [
-                ("身份证", .default, { [weak self] in self?.startGuided(.nationalID) }),
-                ("银行卡", .default, { [weak self] in self?.startGuided(.bankCard) }),
-                ("营业执照", .default, { [weak self] in self?.startGuided(.businessLicense) }),
-                ("结婚证", .default, { [weak self] in self?.startGuided(.marriageCertificate) }),
-                ("奖状", .default, { [weak self] in self?.startGuided(.award) })
-            ]
-        )
+        let vc = CertificatePdfTypeSelectionViewController()
+        vc.captureFlowDelegate = self
+        vc.adjustFlowDelegate = self
+        Router.shared.push(vc)
     }
 
     private func startScan(_ type: ScanType) {
@@ -183,13 +177,6 @@ final class HomeViewController: BaseViewController {
         PermissionHelper.shared.requestCameraPermission(from: self) { [weak self] granted in
             guard granted, let self else { return }
             Router.shared.openScan(type: type, delegate: self)
-        }
-    }
-
-    private func startGuided(_ kind: GuidedDocumentKind) {
-        PermissionHelper.shared.requestCameraPermission(from: self) { [weak self] granted in
-            guard granted, let self else { return }
-            Router.shared.openGuidedCapture(kind: kind, captureDelegate: self, adjustDelegate: self)
         }
     }
 

@@ -294,3 +294,79 @@ private final class ExportOptionsSheetViewController: AppBottomSheetViewControll
         }
     }
 }
+
+// MARK: - 证件卡类导出：保存图片 / 分享图片（不经 PDF 预览页）
+
+final class GuidedCardImageExportSheetViewController: AppBottomSheetViewController {
+
+    var onSaveImage: (() -> Void)?
+    var onShareImage: (() -> Void)?
+
+    override var sheetPanelBackgroundColor: UIColor { UIColor(hex: 0xEBEDEE) }
+    override var sheetPanelTopCornerRadius: CGFloat { 15 }
+    override var sheetContentLayoutMargins: UIEdgeInsets {
+        UIEdgeInsets(top: 30, left: 15, bottom: 0, right: 15)
+    }
+
+    override var sheetContentBottomInsetFromSafeArea: CGFloat { 35 }
+
+    override func setupSheetContent() {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 16
+        sheetContentView.addSubview(stack)
+        stack.snp.makeConstraints { $0.edges.equalToSuperview() }
+
+        let saveBtn = makeActionButton(
+            title: "保存图片到相册",
+            image: UIImage(named: "illustration_picture")?.withRenderingMode(.alwaysOriginal)
+        )
+        let shareBtn = makeActionButton(
+            title: "分享图片到微信",
+            image: UIImage(named: "weixin")?.withRenderingMode(.alwaysOriginal)
+        )
+
+        saveBtn.addTarget(self, action: #selector(saveTapped), for: .touchUpInside)
+        shareBtn.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
+
+        stack.addArrangedSubview(saveBtn)
+        stack.addArrangedSubview(shareBtn)
+
+        saveBtn.snp.makeConstraints { $0.height.equalTo(55) }
+        shareBtn.snp.makeConstraints { $0.height.equalTo(55) }
+    }
+
+    private func makeActionButton(title: String, image: UIImage?) -> UIButton {
+        let button = UIButton(type: .system)
+        var config = UIButton.Configuration.filled()
+        config.title = title
+        config.image = image
+        config.imagePlacement = .leading
+        config.imagePadding = 10
+        config.baseForegroundColor = .label
+        config.baseBackgroundColor = .white
+        config.cornerStyle = .fixed
+        config.background.cornerRadius = 15
+        config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
+        let titleFont = UIFont(name: "PingFangSC-Regular", size: 15) ?? .systemFont(ofSize: 15, weight: .regular)
+        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var out = incoming
+            out.font = titleFont
+            return out
+        }
+        button.configuration = config
+        return button
+    }
+
+    @objc private func saveTapped() {
+        dismissSheet { [weak self] in
+            self?.onSaveImage?()
+        }
+    }
+
+    @objc private func shareTapped() {
+        dismissSheet { [weak self] in
+            self?.onShareImage?()
+        }
+    }
+}

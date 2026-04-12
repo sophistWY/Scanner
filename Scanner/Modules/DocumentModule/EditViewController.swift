@@ -71,6 +71,7 @@ final class EditViewController: BaseViewController {
                 // 多页共用「智能优化」时：尚有未上传完成的页则继续排队处理。
                 if viewIfLoaded?.window != nil {
                     startSmartOptimizeQueueForMissingPagesIfNeeded()
+                    startMissingSmartOptimizeBaseForSharpenGrayscaleIfNeeded()
                 }
             }
         }
@@ -86,6 +87,8 @@ final class EditViewController: BaseViewController {
     /// Sandbox folder when `documentId == nil`: `pending_<uuid>`.
     private var pendingAssetFolderId: String = ""
     private var editDirty = false
+    /// 智能优化完成后自动入库进行中；与导出互斥，避免重复 `createDocument`。
+    private var isAutoSavingDocument = false
     /// Loaded from `DocumentAssetManifest.revision`; incremented on each persisted edit.
     private var manifestRevision: Int64 = 0
     private var backgroundObserver: NSObjectProtocol?
@@ -345,7 +348,12 @@ final class EditViewController: BaseViewController {
     }
 
     private func setEditChromeInteractionEnabled(_ enabled: Bool) {
-        exportButton.isEnabled = enabled
+        if enabled {
+            updateExportButtonForAutoSaveState()
+        } else {
+            exportButton.isEnabled = false
+            exportButton.alpha = 0.7
+        }
         addPhotoButton.isEnabled = enabled
         if showsRetakeButton {
             retakeButton.isEnabled = enabled
@@ -448,6 +456,52 @@ final class EditViewController: BaseViewController {
         return UIImage(data: originalJPEGs[page])
     }
 
+    /// 锐化 / 灰度必须在「智能优化」云端结果上套本地滤镜；若该页尚无云端结果则先走智能优化再套滤镜。
+    private func applySharpenOrGrayscaleChainedFromSmartOptimize(page: Int, filterIndex: Int) {
+        let filters = Self.editFilterTypes
+        guard filterIndex < filters.count else { return }
+        let filterType = filters[filterIndex]
+        guard filterType == .sharpen || filterType == .grayscale else { return }
+        let gen = pageGenerations[page]
+
+        if let d = cloudSmartOptimizeJPEG[page], let base = UIImage(data: d) {
+            enqueueOpenCVFilter(filterType, page: page, base: base, generation: gen)
+            return
+        }
+
+        applySmartOptimizeFilter(forPage: page, shouldBumpGeneration: false, manageEditChrome: false) { [weak self] ok in
+            guard let self else { return }
+            guard ok else { return }
+            guard page < self.pageGenerations.count, gen == self.pageGenerations[page] else { return }
+            guard self.sharedFilterIndex() == filterIndex else { return }
+            guard let base = self.imageForOpenCVChainBase(page: page) else { return }
+            self.enqueueOpenCVFilter(filterType, page: page, base: base, generation: self.pageGenerations[page])
+        }
+    }
+
+    private func enqueueOpenCVFilter(
+        _ filterType: ImageFilterType,
+        page: Int,
+        base: UIImage,
+        generation: Int
+    ) {
+        EditOpenCVQueue.shared.async { [weak self] in
+            let result = autoreleasepool {
+                ImageFilterManager.shared.apply(filterType, to: base)
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard page < self.pageGenerations.count, generation == self.pageGenerations[page] else { return }
+                self.images[page] = result
+                self.collectionView.reloadItems(at: [IndexPath(item: page, section: 0)])
+                self.updateFilterSelection()
+                self.editDirty = true
+                self.persistSandboxAfterEdit(page: page)
+                self.markEditDirtyAndPersistManifest()
+            }
+        }
+    }
+
     private func registerBackgroundFlushObserver() {
         backgroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
@@ -510,7 +564,14 @@ final class EditViewController: BaseViewController {
     }
 
     private func flushPersistReason(reason _: String) {
-        guard editDirty, !isExporting else { return }
+        persistEditSessionToDatabaseIfNeeded()
+    }
+
+    /// 与离开页/进后台时的落库逻辑一致；在智能优化等处理整批完成后调用，无需等到导出或退出。
+    private func persistEditSessionToDatabaseIfNeeded() {
+        guard editDirty, !isExporting, !isAutoSavingDocument else { return }
+        isAutoSavingDocument = true
+        updateExportButtonForAutoSaveState()
         let manifest = makeManifest()
         let manifestJSON = manifest.jsonString()
         if let id = documentId {
@@ -522,6 +583,8 @@ final class EditViewController: BaseViewController {
                 assetManifestJSON: manifestJSON
             ) { [weak self] result in
                 guard let self else { return }
+                self.isAutoSavingDocument = false
+                self.updateExportButtonForAutoSaveState()
                 if case .success = result {
                     self.editDirty = false
                     if let doc = DocumentService.shared.document(byId: id) {
@@ -538,6 +601,8 @@ final class EditViewController: BaseViewController {
             assetManifestJSON: manifestJSON
         ) { [weak self] result in
             guard let self else { return }
+            self.isAutoSavingDocument = false
+            self.updateExportButtonForAutoSaveState()
             switch result {
             case .success(let created):
                 self.documentId = created.document.id
@@ -549,6 +614,22 @@ final class EditViewController: BaseViewController {
                 break
             }
         }
+    }
+
+    private func updateExportButtonForAutoSaveState() {
+        exportButton.isEnabled = !isAutoSavingDocument && !isExporting
+        exportButton.alpha = (isAutoSavingDocument || isExporting) ? 0.7 : 1
+    }
+
+    /// 当前为「智能优化」且各页云端结果已齐时，将编辑会话写入数据库（新建扫描流程）。
+    private func persistEditSessionAfterSmartOptimizeQueueIfNeeded() {
+        guard sharedFilterIndex() == Self.smartOptimizeFilterIndex else { return }
+        guard !originalJPEGs.isEmpty else { return }
+        let allPagesHaveCloud = (0..<originalJPEGs.count).allSatisfy { idx in
+            idx < cloudSmartOptimizeJPEG.count && cloudSmartOptimizeJPEG[idx] != nil
+        }
+        guard allPagesHaveCloud else { return }
+        persistEditSessionToDatabaseIfNeeded()
     }
 
     /// 沙盒落盘：baseline + **智能优化层 `filter_1`（只要内存里有云端结果就写）** + 当前选中槽位 `filter_<idx>`。
@@ -619,6 +700,7 @@ final class EditViewController: BaseViewController {
         super.viewDidAppear(animated)
         // 扫描/打开文档后：默认「智能优化」时对尚未上传的页自动排队处理。
         startSmartOptimizeQueueForMissingPagesIfNeeded()
+        startMissingSmartOptimizeBaseForSharpenGrayscaleIfNeeded()
     }
 
     private func applyLightNavigationBarAppearance() {
@@ -851,8 +933,50 @@ final class EditViewController: BaseViewController {
     }
 
     @objc private func cropTapped() {
-        guard currentPage < images.count,
-              let base = UIImage(data: originalJPEGs[currentPage]) else { return }
+        guard !originalJPEGs.isEmpty, currentPage < images.count else { return }
+
+        let finishPresent: (CropViewController) -> Void = { [weak self] cropVC in
+            guard let self else { return }
+            let nav = BaseNavigationController(rootViewController: cropVC)
+            nav.modalPresentationStyle = .fullScreen
+            self.present(nav, animated: true)
+        }
+
+        // 多页文档：裁剪页内展示 1/N、左右切换与横向滑动，与单页逻辑一致但一次处理全部原图。
+        if originalJPEGs.count > 1 {
+            let bases: [UIImage] = originalJPEGs.compactMap { UIImage(data: $0) }
+            guard bases.count == originalJPEGs.count else { return }
+            let cropVC = CropViewController(images: bases, initialPageIndex: currentPage) { [weak self] croppedList, didModify in
+                guard let self else { return }
+                guard didModify else { return }
+                guard croppedList.count == self.originalJPEGs.count else { return }
+                let q = AppConstants.ScanImage.originalJPEGQuality
+                self.bumpAllGenerations()
+                if let fid = self.assetFolderId() {
+                    for p in 0..<self.originalJPEGs.count {
+                        DocumentAssetStore.shared.invalidatePage(folderId: fid, page: p, completion: nil)
+                    }
+                }
+                for page in 0..<croppedList.count {
+                    let n = croppedList[page].constrainedToMaxPixelLength(AppConstants.ScanImage.maxPixelLength)
+                    let data = n.jpegData(compressionQuality: q) ?? n.pngData() ?? Data()
+                    self.originalJPEGs[page] = data
+                    self.images[page] = UIImage(data: data) ?? n
+                    self.cloudSmartOptimizeJPEG[page] = nil
+                }
+                self.collectionView.reloadData()
+                for page in 0..<croppedList.count {
+                    self.reapplyCurrentFilterForPage(page)
+                }
+                self.updateFilterSelection()
+                self.generateFilterThumbnails()
+                self.markEditDirtyAndPersistManifest()
+            }
+            finishPresent(cropVC)
+            return
+        }
+
+        guard let base = UIImage(data: originalJPEGs[currentPage]) else { return }
         let cropVC = CropViewController(image: base) { [weak self] cropped in
             guard let self else { return }
             let n = cropped.constrainedToMaxPixelLength(AppConstants.ScanImage.maxPixelLength)
@@ -872,9 +996,7 @@ final class EditViewController: BaseViewController {
             self.generateFilterThumbnails()
             self.markEditDirtyAndPersistManifest()
         }
-        let nav = BaseNavigationController(rootViewController: cropVC)
-        nav.modalPresentationStyle = .fullScreen
-        present(nav, animated: true)
+        finishPresent(cropVC)
     }
 
     @objc private func retakeTapped() {
@@ -951,24 +1073,56 @@ final class EditViewController: BaseViewController {
         }
 
         let filterType = filters[idx]
+        guard filterType == .sharpen || filterType == .grayscale else { return }
+
+        let missingCloud = (0..<originalJPEGs.count).filter { cloudSmartOptimizeJPEG[$0] == nil }
+        if !missingCloud.isEmpty {
+            smartOptimizeQueueRunning = true
+            setEditChromeInteractionEnabled(false)
+            runSmartOptimizeSequential(pages: missingCloud) { [weak self] in
+                guard let self else { return }
+                self.smartOptimizeQueueRunning = false
+                self.setEditChromeInteractionEnabled(true)
+                guard self.sharedFilterIndex() == idx else { return }
+                for page in 0..<self.originalJPEGs.count {
+                    guard let base = self.imageForOpenCVChainBase(page: page) else { continue }
+                    let gen = self.pageGenerations[page]
+                    self.enqueueOpenCVFilter(filterType, page: page, base: base, generation: gen)
+                }
+                self.generateFilterThumbnails()
+            }
+            return
+        }
+
         for page in 0..<originalJPEGs.count {
             guard let base = imageForOpenCVChainBase(page: page) else { continue }
             let gen = pageGenerations[page]
-            EditOpenCVQueue.shared.async { [weak self] in
-                let result = autoreleasepool {
-                    ImageFilterManager.shared.apply(filterType, to: base)
-                }
-                DispatchQueue.main.async {
-                    guard let self else { return }
-                    guard page < self.pageGenerations.count, gen == self.pageGenerations[page] else { return }
-                    self.images[page] = result
-                    self.collectionView.reloadItems(at: [IndexPath(item: page, section: 0)])
-                    self.updateFilterSelection()
-                    self.editDirty = true
-                    self.persistSandboxAfterEdit(page: page)
-                    self.markEditDirtyAndPersistManifest()
-                }
+            enqueueOpenCVFilter(filterType, page: page, base: base, generation: gen)
+        }
+    }
+
+    /// 当前为锐化/灰度且部分页缺少智能优化底图时：先补全云端结果再统一套本地滤镜。
+    private func startMissingSmartOptimizeBaseForSharpenGrayscaleIfNeeded() {
+        let idx = sharedFilterIndex()
+        guard idx == 2 || idx == 3 else { return }
+        guard !smartOptimizeQueueRunning else { return }
+        let missing = (0..<originalJPEGs.count).filter { cloudSmartOptimizeJPEG[$0] == nil }
+        guard !missing.isEmpty else { return }
+
+        smartOptimizeQueueRunning = true
+        setEditChromeInteractionEnabled(false)
+        runSmartOptimizeSequential(pages: missing) { [weak self] in
+            guard let self else { return }
+            self.smartOptimizeQueueRunning = false
+            self.setEditChromeInteractionEnabled(true)
+            guard self.sharedFilterIndex() == idx else { return }
+            let filterType = Self.editFilterTypes[idx]
+            for page in 0..<self.originalJPEGs.count {
+                guard let base = self.imageForOpenCVChainBase(page: page) else { continue }
+                let gen = self.pageGenerations[page]
+                self.enqueueOpenCVFilter(filterType, page: page, base: base, generation: gen)
             }
+            self.generateFilterThumbnails()
         }
     }
 
@@ -977,7 +1131,10 @@ final class EditViewController: BaseViewController {
         guard sharedFilterIndex() == Self.smartOptimizeFilterIndex else { return }
         guard !smartOptimizeQueueRunning else { return }
         let missing = (0..<originalJPEGs.count).filter { self.cloudSmartOptimizeJPEG[$0] == nil }
-        guard !missing.isEmpty else { return }
+        if missing.isEmpty {
+            persistEditSessionAfterSmartOptimizeQueueIfNeeded()
+            return
+        }
 
         for p in 0..<cloudSmartOptimizeJPEG.count {
             if let d = cloudSmartOptimizeJPEG[p], let img = UIImage(data: d) {
@@ -994,6 +1151,7 @@ final class EditViewController: BaseViewController {
             self.setEditChromeInteractionEnabled(true)
             self.collectionView.reloadData()
             self.generateFilterThumbnails()
+            self.persistEditSessionAfterSmartOptimizeQueueIfNeeded()
         }
     }
 
@@ -1013,6 +1171,7 @@ final class EditViewController: BaseViewController {
             markEditDirtyAndPersistManifest()
             updateFilterSelection()
             generateFilterThumbnails()
+            persistEditSessionAfterSmartOptimizeQueueIfNeeded()
             return
         }
 
@@ -1024,6 +1183,7 @@ final class EditViewController: BaseViewController {
             self.setEditChromeInteractionEnabled(true)
             self.collectionView.reloadData()
             self.generateFilterThumbnails()
+            self.persistEditSessionAfterSmartOptimizeQueueIfNeeded()
         }
     }
 
@@ -1182,28 +1342,15 @@ final class EditViewController: BaseViewController {
             return
         }
 
-        guard let base = imageForOpenCVChainBase(page: page) else { return }
-        let filterType = filters[idx]
-        bumpGeneration(for: page)
-        let gen = pageGenerations[page]
-        EditOpenCVQueue.shared.async { [weak self] in
-            let result = autoreleasepool {
-                ImageFilterManager.shared.apply(filterType, to: base)
-            }
-            DispatchQueue.main.async {
-                guard let self, page < self.images.count else { return }
-                guard page < self.pageGenerations.count, gen == self.pageGenerations[page] else { return }
-                self.images[page] = result
-                self.collectionView.reloadItems(at: [IndexPath(item: page, section: 0)])
-                self.editDirty = true
-                self.persistSandboxAfterEdit(page: page)
-                self.markEditDirtyAndPersistManifest()
-            }
+        if filters[idx] == .sharpen || filters[idx] == .grayscale {
+            bumpGeneration(for: page)
+            applySharpenOrGrayscaleChainedFromSmartOptimize(page: page, filterIndex: idx)
+            return
         }
     }
 
     @objc private func exportTapped() {
-        guard !isExporting else { return }
+        guard !isExporting, !isAutoSavingDocument else { return }
         isExporting = true
         exportButton.isEnabled = false
         addPhotoButton.isEnabled = false
@@ -1261,9 +1408,8 @@ final class EditViewController: BaseViewController {
 
     private func finishExportLoadingState() {
         isExporting = false
-        exportButton.isEnabled = true
         addPhotoButton.isEnabled = true
-        exportButton.alpha = 1
+        updateExportButtonForAutoSaveState()
     }
 
 }

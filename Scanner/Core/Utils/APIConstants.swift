@@ -18,6 +18,7 @@ public let kPathSTSConfig = "app/stsconfig"
 public let kPathSTSUpload = "app/stsupload"
 public let kPathInfoQuery = "app/infoquery"
 public let kPathLanguage = "common/lan"
+public let kPathConfigGet = "common/configget"
 
 // MARK: - AES Encryption
 

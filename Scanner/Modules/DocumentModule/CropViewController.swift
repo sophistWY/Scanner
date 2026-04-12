@@ -2,48 +2,132 @@
 //  CropViewController.swift
 //  Scanner
 //
+//  裁剪页：支持单张或多张原图；多图时横向分页滑动 + 页码与左右切换。
+//  确认时若用户未旋转且未拖动选区，则 `didModify == false`，业务侧勿重新处理。
+//
 
 import UIKit
 import SnapKit
 
-final class CropViewController: BaseViewController {
+/// 裁剪页底部白底操作区高度（页码 + 旋转/确认），与 `CropViewController` 内布局联动。
+enum CropViewBottomBarLayout {
+    static let height: CGFloat = 160
+}
 
-    private var displayImage: UIImage
-    private let onCrop: (UIImage) -> Void
+final class CropViewController: BaseViewController, UIScrollViewDelegate {
 
-    private var imageRect: CGRect = .zero
-    private var hasInitializedCrop = false
+    private let pageCount: Int
+    private let initialPageIndex: Int
+    private var pageImages: [UIImage]
+    /// 第二项：是否相对进入页有过编辑（旋转或拖动选区）；为 false 时不应触发上传/重算。
+    private let onCrop: ([UIImage], Bool) -> Void
+    private var didApplyInitialScrollOffset = false
 
-    private let imageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFit
-        iv.backgroundColor = .black
-        return iv
+    private var hasInitializedCrop: [Bool]
+    private var pageImageRects: [CGRect]
+    /// 每页首次落下默认选区时的四角快照，用于判断是否拖动过。
+    private var initialCornersSnapshot: [[CGPoint]]
+    private var userDidRotate = false
+
+    private lazy var pagingScrollView: UIScrollView = {
+        let s = UIScrollView()
+        s.isPagingEnabled = true
+        s.showsHorizontalScrollIndicator = false
+        s.backgroundColor = .black
+        s.delegate = self
+        s.clipsToBounds = true
+        if pageCount == 1 {
+            s.isScrollEnabled = false
+        }
+        return s
     }()
 
-    private let cropView = QuadrilateralCropView()
+    private var pageContainers: [UIView] = []
+    private var pageImageViews: [UIImageView] = []
+    private var pageCropViews: [QuadrilateralCropView] = []
 
+    /// 底部操作区：白底与导航栏一致，与上方黑底预览形成明确分区。
     private lazy var bottomBar: UIView = {
         let v = UIView()
-        v.backgroundColor = .systemBackground
+        v.backgroundColor = .white
+        v.isOpaque = true
         return v
     }()
 
-    /// 白底圆按钮 + 下方「旋转」文案；与右侧「确认」同一行对齐（确认与圆钮垂直居中）
-    private lazy var rotateCircleButton: UIButton = {
+    private lazy var pagerRow: UIView = {
+        let v = UIView()
+        v.backgroundColor = .clear
+        return v
+    }()
+
+    private lazy var prevPageButton: UIButton = {
+        makePagerChevron(systemName: "chevron.left", action: #selector(prevPageTapped))
+    }()
+
+    private lazy var nextPageButton: UIButton = {
+        makePagerChevron(systemName: "chevron.right", action: #selector(nextPageTapped))
+    }()
+
+    private lazy var pageLabel: UILabel = {
+        let l = UILabel()
+        l.textColor = .label
+        l.font = .monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
+        l.textAlignment = .center
+        return l
+    }()
+
+    private lazy var pagerStack: UIStackView = {
+        let s = UIStackView(arrangedSubviews: [prevPageButton, pageLabel, nextPageButton])
+        s.axis = .horizontal
+        s.spacing = 6
+        s.alignment = .center
+        return s
+    }()
+
+    private enum BottomChrome {
+        /// 页码区与底栏顶
+        static let topInset: CGFloat = 18
+        /// 页码区域底边与下方旋转/确认按钮区域顶边的间距（多图）
+        static let pagerToToolsSpacing: CGFloat = 10
+        /// 按钮区底到安全区底（Home 条上方留白）
+        static let safeBottomInset: CGFloat = 34
+        static let horizontalInset: CGFloat = 15
+    }
+
+    /// 底部工具：左右边距 15，左右均分；左半区旋转、右半区确认。页码行在按钮上方。
+    private lazy var toolsRow: UIView = {
+        let v = UIView()
+        v.backgroundColor = .clear
+        return v
+    }()
+
+    private lazy var toolsColumnsStack: UIStackView = {
+        let s = UIStackView()
+        s.axis = .horizontal
+        s.distribution = .fillEqually
+        s.alignment = .center
+        s.spacing = 0
+        return s
+    }()
+
+    private lazy var rotateColumnStack: UIStackView = {
+        let s = UIStackView(arrangedSubviews: [rotateIconButton, rotateCaptionLabel])
+        s.axis = .vertical
+        s.alignment = .center
+        s.spacing = 4
+        return s
+    }()
+
+    /// 40×40，#F6F6F6，资源图 icon_rotate
+    private lazy var rotateIconButton: UIButton = {
         let btn = UIButton(type: .custom)
-        btn.backgroundColor = .white
-        btn.layer.cornerRadius = 28
-        btn.layer.masksToBounds = false
-        btn.layer.shadowColor = UIColor.black.cgColor
-        btn.layer.shadowOpacity = 0.08
-        btn.layer.shadowOffset = CGSize(width: 0, height: 2)
-        btn.layer.shadowRadius = 6
-        let img = UIImage(systemName: "rotate.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .medium))
+        btn.backgroundColor = UIColor(hex: 0xF6F6F6)
+        btn.layer.cornerRadius = 8
+        btn.layer.masksToBounds = true
+        let img = UIImage(named: "icon_rotate")?.withRenderingMode(.alwaysOriginal)
         btn.setImage(img, for: .normal)
-        btn.tintColor = .label
         btn.imageView?.contentMode = .scaleAspectFit
-        btn.adjustsImageWhenHighlighted = true
+        btn.imageEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
         btn.accessibilityLabel = "旋转"
         btn.addTarget(self, action: #selector(rotateTapped), for: .touchUpInside)
         return btn
@@ -52,8 +136,8 @@ final class CropViewController: BaseViewController {
     private let rotateCaptionLabel: UILabel = {
         let l = UILabel()
         l.text = "旋转"
-        l.font = .systemFont(ofSize: 12, weight: .medium)
-        l.textColor = .label
+        l.font = UIFont(name: "PingFangSC-Regular", size: 11) ?? .systemFont(ofSize: 11, weight: .regular)
+        l.textColor = UIColor(hex: 0x555555)
         l.textAlignment = .center
         return l
     }()
@@ -64,15 +148,42 @@ final class CropViewController: BaseViewController {
         btn.setTitleColor(.white, for: .normal)
         btn.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
         btn.backgroundColor = UIColor.appThemePrimary
-        btn.layer.cornerRadius = 14
+        btn.layer.cornerRadius = 15
+        btn.layer.masksToBounds = true
         btn.addTarget(self, action: #selector(confirmTapped), for: .touchUpInside)
         return btn
     }()
 
-    init(image: UIImage, onCrop: @escaping (UIImage) -> Void) {
-        self.displayImage = image.fixOrientation()
+    private lazy var leftToolRegion: UIView = {
+        let v = UIView()
+        v.backgroundColor = .clear
+        return v
+    }()
+
+    private lazy var rightToolRegion: UIView = {
+        let v = UIView()
+        v.backgroundColor = .clear
+        return v
+    }()
+
+    init(images: [UIImage], initialPageIndex: Int = 0, onCrop: @escaping ([UIImage], Bool) -> Void) {
+        precondition(!images.isEmpty, "CropViewController requires at least one image")
+        self.pageCount = images.count
+        let clamped = min(max(0, initialPageIndex), images.count - 1)
+        self.initialPageIndex = clamped
+        self.pageImages = images.map { $0.fixOrientation() }
         self.onCrop = onCrop
+        self.hasInitializedCrop = Array(repeating: false, count: images.count)
+        self.pageImageRects = Array(repeating: .zero, count: images.count)
+        self.initialCornersSnapshot = Array(repeating: [], count: images.count)
         super.init(nibName: nil, bundle: nil)
+    }
+
+    convenience init(image: UIImage, onCrop: @escaping (UIImage) -> Void) {
+        self.init(images: [image], initialPageIndex: 0) { outs, didModify in
+            guard let first = outs.first else { return }
+            if didModify { onCrop(first) }
+        }
     }
 
     @available(*, unavailable)
@@ -85,21 +196,51 @@ final class CropViewController: BaseViewController {
         view.backgroundColor = .black
         title = "调整"
 
-        imageView.image = displayImage
-        view.addSubview(imageView)
-        view.addSubview(cropView)
+        view.addSubview(pagingScrollView)
         view.addSubview(bottomBar)
 
-        bottomBar.addSubview(rotateCircleButton)
-        bottomBar.addSubview(rotateCaptionLabel)
-        bottomBar.addSubview(confirmButton)
+        for i in 0..<pageCount {
+            let container = UIView()
+            container.backgroundColor = .black
+            let iv = UIImageView()
+            iv.contentMode = .scaleAspectFit
+            iv.backgroundColor = .black
+            iv.image = pageImages[i]
+            let cv = QuadrilateralCropView()
+            container.addSubview(iv)
+            container.addSubview(cv)
+            iv.snp.makeConstraints { $0.edges.equalToSuperview() }
+            cv.snp.makeConstraints { $0.edges.equalToSuperview() }
+            pagingScrollView.addSubview(container)
+            pageContainers.append(container)
+            pageImageViews.append(iv)
+            pageCropViews.append(cv)
+        }
+
+        bottomBar.addSubview(pagerRow)
+        pagerRow.addSubview(pagerStack)
+        bottomBar.addSubview(toolsRow)
+        toolsRow.addSubview(toolsColumnsStack)
+        toolsColumnsStack.addArrangedSubview(leftToolRegion)
+        toolsColumnsStack.addArrangedSubview(rightToolRegion)
+
+        leftToolRegion.addSubview(rotateColumnStack)
+        rightToolRegion.addSubview(confirmButton)
+
+        // 仅多图时展示 ‹ 页码 ›；单张裁剪不显示页码行。
+        let showPager = pageCount > 1
+        pagerRow.isHidden = !showPager
+        if showPager {
+            pageLabel.text = "\(initialPageIndex + 1)/\(pageCount)"
+        } else {
+            pageLabel.text = nil
+        }
     }
 
     override func customNavigationBarLeftButtonTapped() {
         dismissOrPopFromCropFlow()
     }
 
-    /// 编辑页用「present 包裹 Nav」进入时走 dismiss；引导调整页用 push 进入时必须 pop，否则关闭无效。
     private func dismissOrPopFromCropFlow() {
         guard let nav = navigationController else {
             dismiss(animated: true)
@@ -113,32 +254,74 @@ final class CropViewController: BaseViewController {
     }
 
     override func setupConstraints() {
-        imageView.snp.makeConstraints { make in
+        pagingScrollView.snp.makeConstraints { make in
             make.top.equalTo(customNavigationBar.snp.bottom)
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(bottomBar.snp.top)
         }
-        cropView.snp.makeConstraints { make in
-            make.edges.equalTo(imageView)
-        }
+
         bottomBar.snp.makeConstraints { make in
             make.leading.trailing.bottom.equalToSuperview()
+            make.height.equalTo(CropViewBottomBarLayout.height)
         }
-        rotateCircleButton.snp.makeConstraints { make in
-            make.leading.equalToSuperview().offset(20)
-            make.top.equalToSuperview().offset(12)
-            make.width.height.equalTo(56)
+
+        // 多图：页码行高度由 pagerStack 内容决定（顶对齐，不用 center，避免「页码区」与按钮区间距被行内留白吃掉）
+        pagerRow.snp.makeConstraints { make in
+//            make.leading.trailing.equalToSuperview()
+            make.centerX.equalToSuperview()
+            make.bottom.equalTo(toolsRow.snp.top ).offset(-BottomChrome.topInset)
+            if pageCount == 1 {
+                make.height.equalTo(0)
+            }
         }
-        rotateCaptionLabel.snp.makeConstraints { make in
-            make.centerX.equalTo(rotateCircleButton)
-            make.top.equalTo(rotateCircleButton.snp.bottom).offset(6)
-            make.bottom.equalTo(bottomBar.safeAreaLayoutGuide.snp.bottom).offset(-12)
+
+        if pageCount > 1 {
+            pagerStack.snp.makeConstraints { make in
+                make.top.leading.trailing.equalToSuperview()
+            }
+            pagerRow.snp.makeConstraints { make in
+                make.bottom.equalTo(toolsRow.snp.top ).offset(-BottomChrome.topInset)
+            }
+        } else {
+            pagerStack.snp.makeConstraints { make in
+                make.top.leading.trailing.equalToSuperview()
+                make.height.equalTo(0)
+            }
         }
+
+        prevPageButton.snp.makeConstraints { make in
+            make.width.height.equalTo(40)
+        }
+
+        nextPageButton.snp.makeConstraints { make in
+            make.width.height.equalTo(40)
+        }
+
+        toolsRow.snp.makeConstraints { make in
+            make.leading.equalToSuperview().offset(BottomChrome.horizontalInset)
+            make.trailing.equalToSuperview().offset(-BottomChrome.horizontalInset)
+//            make.top.equalTo(pagerRow.snp.bottom).offset(pageCount > 1 ? BottomChrome.pagerToToolsSpacing : 0)
+            // 与底栏同宽白底一起延伸到底；按钮区底边落在 Home 条上方足够远处
+            make.bottom.equalTo(bottomBar.safeAreaLayoutGuide.snp.bottom).offset(-BottomChrome.safeBottomInset)
+        }
+
+        toolsColumnsStack.snp.makeConstraints { make in
+            make.top.bottom.equalToSuperview()
+            make.leading.trailing.equalToSuperview()
+        }
+
+        rotateColumnStack.snp.makeConstraints { make in
+            make.center.equalToSuperview()
+        }
+
+        rotateIconButton.snp.makeConstraints { make in
+            make.width.height.equalTo(40)
+        }
+
         confirmButton.snp.makeConstraints { make in
-            make.leading.equalTo(rotateCircleButton.snp.trailing).offset(14)
-            make.trailing.equalToSuperview().offset(-20)
-            make.centerY.equalTo(rotateCircleButton.snp.centerY)
-            make.height.equalTo(52)
+            make.center.equalToSuperview()
+            make.leading.trailing.equalToSuperview()
+            make.height.equalTo(55)
         }
     }
 
@@ -146,32 +329,59 @@ final class CropViewController: BaseViewController {
         super.viewDidLayoutSubviews()
         view.bringSubviewToFront(bottomBar)
 
-        let newRect = calculateImageRect()
+        let w = pagingScrollView.bounds.width
+        let h = pagingScrollView.bounds.height
+        guard w > 0, h > 0 else { return }
+
+        pagingScrollView.contentSize = CGSize(width: w * CGFloat(pageCount), height: h)
+
+        for i in 0..<pageCount {
+            pageContainers[i].frame = CGRect(x: CGFloat(i) * w, y: 0, width: w, height: h)
+        }
+
+        for i in 0..<pageCount {
+            layoutPage(i, containerWidth: w, containerHeight: h)
+        }
+
+        if pageCount > 1, !didApplyInitialScrollOffset {
+            didApplyInitialScrollOffset = true
+            let idx = initialPageIndex
+            pagingScrollView.setContentOffset(CGPoint(x: CGFloat(idx) * w, y: 0), animated: false)
+        }
+
+        updatePagerAppearanceFromScroll()
+    }
+
+    private func layoutPage(_ index: Int, containerWidth: CGFloat, containerHeight: CGFloat) {
+        let crop = pageCropViews[index]
+        let img = pageImages[index]
+
+        let viewSize = CGSize(width: containerWidth, height: containerHeight)
+        let newRect = Self.calculateImageRect(for: img, viewSize: viewSize)
         guard newRect.width > 0, newRect.height > 0 else { return }
 
-        let rectChanged = newRect != imageRect
-        imageRect = newRect
-        cropView.imageBounds = imageRect
+        let rectChanged = newRect != pageImageRects[index]
+        pageImageRects[index] = newRect
+        crop.imageBounds = newRect
 
-        if !hasInitializedCrop {
-            hasInitializedCrop = true
+        if !hasInitializedCrop[index] {
+            hasInitializedCrop[index] = true
             let inset: CGFloat = 20
-            cropView.corners = [
-                CGPoint(x: imageRect.minX + inset, y: imageRect.minY + inset),
-                CGPoint(x: imageRect.maxX - inset, y: imageRect.minY + inset),
-                CGPoint(x: imageRect.maxX - inset, y: imageRect.maxY - inset),
-                CGPoint(x: imageRect.minX + inset, y: imageRect.maxY - inset)
+            crop.corners = [
+                CGPoint(x: newRect.minX + inset, y: newRect.minY + inset),
+                CGPoint(x: newRect.maxX - inset, y: newRect.minY + inset),
+                CGPoint(x: newRect.maxX - inset, y: newRect.maxY - inset),
+                CGPoint(x: newRect.minX + inset, y: newRect.maxY - inset)
             ]
+            initialCornersSnapshot[index] = crop.corners
         } else if rectChanged {
-            cropView.setNeedsLayout()
+            crop.setNeedsLayout()
         }
     }
 
-    private func calculateImageRect() -> CGRect {
-        let viewSize = imageView.bounds.size
+    private static func calculateImageRect(for image: UIImage, viewSize: CGSize) -> CGRect {
         guard viewSize.width > 0, viewSize.height > 0 else { return .zero }
-
-        let imgSize = displayImage.size
+        let imgSize = image.size
         guard imgSize.width > 0, imgSize.height > 0 else { return .zero }
 
         let scale = min(viewSize.width / imgSize.width, viewSize.height / imgSize.height)
@@ -182,20 +392,133 @@ final class CropViewController: BaseViewController {
         return CGRect(x: x, y: y, width: fitW, height: fitH)
     }
 
+    private var currentPageIndex: Int {
+        let w = pagingScrollView.bounds.width
+        guard w > 0 else { return 0 }
+        return min(max(0, Int(round(pagingScrollView.contentOffset.x / w))), pageCount - 1)
+    }
+
+    private func updatePagerAppearanceFromScroll() {
+        guard pageCount > 1 else { return }
+        let page = currentPageIndex
+        pageLabel.text = "\(page + 1)/\(pageCount)"
+        let canPrev = page > 0
+        let canNext = page < pageCount - 1
+        prevPageButton.isEnabled = canPrev
+        nextPageButton.isEnabled = canNext
+        let on = UIColor.label
+        let off = UIColor.tertiaryLabel
+        prevPageButton.tintColor = canPrev ? on : off
+        nextPageButton.tintColor = canNext ? on : off
+    }
+
+    private func makePagerChevron(systemName: String, action: Selector) -> UIButton {
+        let btn = UIButton(type: .system)
+        let img = UIImage(systemName: systemName, withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold))
+        btn.setImage(img, for: .normal)
+        btn.tintColor = .label
+        btn.backgroundColor = UIColor(hex: 0xF6F6F6)
+        btn.layer.cornerRadius = 20
+        btn.layer.masksToBounds = true
+        btn.addTarget(self, action: action, for: .touchUpInside)
+        return btn
+    }
+
+    private func userDidChangeCropFromInitial() -> Bool {
+        if userDidRotate { return true }
+        for i in 0..<pageCount {
+            let cur = pageCropViews[i].corners
+            let snap = initialCornersSnapshot[i]
+            guard cur.count == 4, snap.count == 4 else { return true }
+            for k in 0..<4 {
+                if hypot(cur[k].x - snap[k].x, cur[k].y - snap[k].y) > 1.0 {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    @objc private func prevPageTapped() {
+        let w = pagingScrollView.bounds.width
+        guard w > 0 else { return }
+        let next = max(0, currentPageIndex - 1)
+        pagingScrollView.setContentOffset(CGPoint(x: CGFloat(next) * w, y: 0), animated: true)
+    }
+
+    @objc private func nextPageTapped() {
+        let w = pagingScrollView.bounds.width
+        guard w > 0 else { return }
+        let next = min(pageCount - 1, currentPageIndex + 1)
+        pagingScrollView.setContentOffset(CGPoint(x: CGFloat(next) * w, y: 0), animated: true)
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        updatePagerAppearanceFromScroll()
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        updatePagerAppearanceFromScroll()
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if pageCount > 1 {
+            let w = scrollView.bounds.width
+            guard w > 0 else { return }
+            let page = min(max(0, Int(round(scrollView.contentOffset.x / w))), pageCount - 1)
+            pageLabel.text = "\(page + 1)/\(pageCount)"
+        }
+    }
+
     @objc private func rotateTapped() {
-        displayImage = displayImage.rotatedClockwise90()
-        imageView.image = displayImage
-        hasInitializedCrop = false
-        imageRect = .zero
+        let idx = currentPageIndex
+        userDidRotate = true
+        pageImages[idx] = pageImages[idx].rotatedClockwise90()
+        pageImageViews[idx].image = pageImages[idx]
+        hasInitializedCrop[idx] = false
+        pageImageRects[idx] = .zero
         view.setNeedsLayout()
     }
 
     @objc private func confirmTapped() {
-        let c = cropView.corners
-        guard c.count == 4, imageRect.width > 0, imageRect.height > 0 else {
+        for i in 0..<pageCount {
+            let c = pageCropViews[i].corners
+            let r = pageImageRects[i]
+            guard c.count == 4, r.width > 0, r.height > 0 else {
+                dismissOrPopFromCropFlow()
+                return
+            }
+        }
+
+        let didModify = userDidChangeCropFromInitial()
+        if !didModify {
+            onCrop(pageImages, false)
             dismissOrPopFromCropFlow()
             return
         }
+
+        HUD.shared.showLoading(message: "处理中…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            var outputs: [UIImage] = []
+            outputs.reserveCapacity(self.pageCount)
+            for i in 0..<self.pageCount {
+                let cropped = self.perspectiveCrop(pageIndex: i) ?? self.pageImages[i]
+                outputs.append(cropped)
+            }
+            DispatchQueue.main.async {
+                HUD.shared.hideLoading()
+                self.onCrop(outputs, true)
+                self.dismissOrPopFromCropFlow()
+            }
+        }
+    }
+
+    private func perspectiveCrop(pageIndex: Int) -> UIImage? {
+        let c = pageCropViews[pageIndex].corners
+        let imageRect = pageImageRects[pageIndex]
+        let displayImage = pageImages[pageIndex]
+        guard c.count == 4, imageRect.width > 0, imageRect.height > 0 else { return nil }
 
         let imgSize = displayImage.size
         let scaleX = imgSize.width / imageRect.width
@@ -215,17 +538,6 @@ final class CropViewController: BaseViewController {
             bottomRight: toImageCoord(c[2])
         )
 
-        HUD.shared.showLoading(message: "处理中…")
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self else { return }
-            let cropped = ImageCropper.perspectiveCorrectedImage(
-                from: self.displayImage, rectangle: rect
-            ) ?? self.displayImage
-            DispatchQueue.main.async {
-                HUD.shared.hideLoading()
-                self.onCrop(cropped)
-                self.dismissOrPopFromCropFlow()
-            }
-        }
+        return ImageCropper.perspectiveCorrectedImage(from: displayImage, rectangle: rect)
     }
 }

@@ -98,9 +98,7 @@ final class ApplePayManager {
     // MARK: - Purchase
 
     func purchase(productId: String) async throws -> Transaction {
-        if productsByID[productId] == nil {
-            _ = try await loadProducts(ids: [productId])
-        }
+        _ = try await loadProducts(ids: [productId])
         guard let product = productsByID[productId] else {
             throw ApplePayError.productNotFound(productId)
         }
@@ -126,6 +124,7 @@ final class ApplePayManager {
 
     /// Syncs with App Store and reapplies active entitlements locally.
     func restorePurchases() async throws {
+        _ = try await loadProducts(ids: Array(subscriptionProductIDs))
         try await AppStore.sync()
         try await refreshEntitlementsFromStore()
         await UserManager.shared.syncVIPAfterStoreOperation()
