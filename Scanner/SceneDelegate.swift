@@ -16,7 +16,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     ) {
         guard let windowScene = (scene as? UIWindowScene) else { return }
         let window = UIWindow(windowScene: windowScene)
-        Router.shared.setupWindow(window)
+        Router.shared.setupInitialWindow(window)
         self.window = window
     }
 

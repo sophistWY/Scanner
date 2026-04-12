@@ -48,6 +48,7 @@ final class ProfileViewController: BaseViewController {
     }()
 
     private let menuItems: [(title: String, action: Selector)] = [
+        ("会员中心", #selector(vipCenterTapped)),
         ("隐私协议", #selector(privacyTapped)),
         ("服务协议", #selector(serviceTapped)),
         ("意见反馈", #selector(feedbackTapped)),
@@ -137,6 +138,10 @@ final class ProfileViewController: BaseViewController {
     }
 
     @objc private func vipTapped() {
+        Router.shared.presentSubscription(from: self, context: .modalFromApp)
+    }
+
+    @objc private func vipCenterTapped() {
         navigationController?.pushViewController(VIPViewController(), animated: true)
     }
 

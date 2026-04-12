@@ -15,6 +15,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         setupAppearance()
         FileHelper.shared.ensureDirectoriesExist()
         NetworkStatusMonitor.shared.start()
+        Task { @MainActor in
+            _ = try? await ApplePayManager.shared.loadProducts()
+            await UserManager.shared.refreshVIPStatus()
+        }
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
             NetworkManager.shared.fetchLanguages { result in
                 if case .success = result {

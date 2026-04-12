@@ -8,8 +8,6 @@ import SnapKit
 
 final class VIPViewController: BaseViewController {
 
-    private let vipExpireDate: Date?
-
     private lazy var statusTitleLabel: UILabel = {
         let label = UILabel()
         label.textColor = .white
@@ -64,7 +62,6 @@ final class VIPViewController: BaseViewController {
     }()
 
     init() {
-        self.vipExpireDate = UserDefaults.standard.object(forKey: "vip_expire_date") as? Date
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -73,9 +70,20 @@ final class VIPViewController: BaseViewController {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     override func setupUI() {
         title = "VIP"
         view.backgroundColor = UIColor(hex: 0xF6F6F8)
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(vipStatusChanged),
+            name: .userVIPStatusDidChange,
+            object: nil
+        )
 
         view.addSubview(vipCard)
         vipCard.addSubview(cardTopDecoration)
@@ -142,8 +150,13 @@ final class VIPViewController: BaseViewController {
         updateStatusUI()
     }
 
+    @objc private func vipStatusChanged() {
+        updateStatusUI()
+    }
+
     private func updateStatusUI() {
-        guard let expire = vipExpireDate, expire > Date() else {
+        let expire = UserManager.shared.vipExpirationDate
+        guard let expire, expire > Date() else {
             statusTitleLabel.text = "尚未开通"
             statusValueLabel.text = "— —"
             infoTitleLabel.isHidden = true

@@ -18,14 +18,52 @@ final class Router {
 
     // MARK: - Window Setup
 
-    func setupWindow(_ window: UIWindow) {
+    /// Cold start: onboarding / privacy flow, or main tabs when launch flow has completed.
+    func setupInitialWindow(_ window: UIWindow) {
         self.window = window
+        if UserDefaults.standard.bool(forKey: AppFlowUserDefaultsKeys.hasCompletedLaunchFlow) {
+            installMainTabRoot(in: window)
+        } else {
+            let nav = BaseNavigationController()
+            if UserDefaults.standard.bool(forKey: AppFlowUserDefaultsKeys.hasAcceptedPrivacySummary) {
+                nav.setViewControllers([OnboardingViewController(content: .slide1)], animated: false)
+            } else {
+                nav.setViewControllers([PrivacySummaryViewController()], animated: false)
+            }
+            tabBarController = nil
+            navigationController = nav
+            window.rootViewController = nav
+            window.makeKeyAndVisible()
+        }
+        Logger.shared.log("Window setup complete", level: .info)
+    }
+
+    /// Switches to `MainTabBarController` and marks the first-launch flow finished.
+    func switchToMainTabs() {
+        DispatchQueue.main.async {
+            guard let window = self.window else { return }
+            UserDefaults.standard.set(true, forKey: AppFlowUserDefaultsKeys.hasCompletedLaunchFlow)
+            self.installMainTabRoot(in: window)
+        }
+    }
+
+    func presentSubscription(
+        from presenter: UIViewController,
+        context: SubscriptionPresentationContext,
+        onFinish: ((SubscriptionOutcome) -> Void)? = nil
+    ) {
+        let sub = SubscriptionViewController(presentationContext: context)
+        sub.onFinish = onFinish
+        sub.modalPresentationStyle = .fullScreen
+        presenter.present(sub, animated: true)
+    }
+
+    private func installMainTabRoot(in window: UIWindow) {
         let tabBar = MainTabBarController()
-        self.tabBarController = tabBar
-        self.navigationController = tabBar.currentNavigationController
+        tabBarController = tabBar
+        navigationController = tabBar.currentNavigationController
         window.rootViewController = tabBar
         window.makeKeyAndVisible()
-        Logger.shared.log("Window setup complete", level: .info)
     }
 
     // MARK: - Push / Pop
