@@ -226,15 +226,23 @@ private final class ExportOptionsSheetViewController: AppBottomSheetViewControll
     var onSaveImages: (() -> Void)?
     var onSharePDF: (() -> Void)?
 
+    override var sheetPanelBackgroundColor: UIColor { UIColor(hex: 0xEBEDEE) }
+    override var sheetPanelTopCornerRadius: CGFloat { 15 }
+    override var sheetContentLayoutMargins: UIEdgeInsets {
+        UIEdgeInsets(top: 30, left: 15, bottom: 0, right: 15)
+    }
+
+    override var sheetContentBottomInsetFromSafeArea: CGFloat { 35 }
+
     override func setupSheetContent() {
         let stack = UIStackView()
         stack.axis = .vertical
-        stack.spacing = 12
+        stack.spacing = 16
         sheetContentView.addSubview(stack)
         stack.snp.makeConstraints { $0.edges.equalToSuperview() }
 
         let saveBtn = makeActionButton(
-            title: "图片形式保存到相册",
+            title: "保存图片到相册",
             image: UIImage(named: "illustration_picture")?.withRenderingMode(.alwaysOriginal)
         )
         let shareBtn = makeActionButton(
@@ -248,8 +256,8 @@ private final class ExportOptionsSheetViewController: AppBottomSheetViewControll
         stack.addArrangedSubview(saveBtn)
         stack.addArrangedSubview(shareBtn)
 
-        saveBtn.snp.makeConstraints { $0.height.equalTo(56) }
-        shareBtn.snp.makeConstraints { $0.height.equalTo(56) }
+        saveBtn.snp.makeConstraints { $0.height.equalTo(55) }
+        shareBtn.snp.makeConstraints { $0.height.equalTo(55) }
     }
 
     private func makeActionButton(title: String, image: UIImage?) -> UIButton {
@@ -260,12 +268,14 @@ private final class ExportOptionsSheetViewController: AppBottomSheetViewControll
         config.imagePlacement = .leading
         config.imagePadding = 10
         config.baseForegroundColor = .label
-        config.baseBackgroundColor = .secondarySystemGroupedBackground
-        config.cornerStyle = .large
+        config.baseBackgroundColor = .white
+        config.cornerStyle = .fixed
+        config.background.cornerRadius = 15
         config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
+        let titleFont = UIFont(name: "PingFangSC-Regular", size: 15) ?? .systemFont(ofSize: 15, weight: .regular)
         config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var out = incoming
-            out.font = .systemFont(ofSize: 16, weight: .medium)
+            out.font = titleFont
             return out
         }
         button.configuration = config

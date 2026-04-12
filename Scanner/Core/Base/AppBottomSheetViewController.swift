@@ -23,15 +23,22 @@ class AppBottomSheetViewController: UIViewController {
 
     private let sheetBackground: UIView = {
         let v = UIView()
-        v.backgroundColor = .systemBackground
-        v.layer.cornerRadius = 16
         v.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         v.layer.masksToBounds = true
         return v
     }()
 
-    /// 在此视图上添加具体按钮或列表；已含左右与顶部内边距，底部对齐安全区。
+    /// 在此视图上添加具体按钮或列表。
     let sheetContentView = UIView()
+
+    /// 面板背景色（如分享弹窗灰底 `#EBEDEE`）。
+    var sheetPanelBackgroundColor: UIColor { .systemBackground }
+    /// 面板顶部圆角。
+    var sheetPanelTopCornerRadius: CGFloat { 16 }
+    /// 选项区域相对面板顶、左、右的内边距；`bottom` 一般置 0，底边距见 `sheetContentBottomInsetFromSafeArea`。
+    var sheetContentLayoutMargins: UIEdgeInsets { UIEdgeInsets(top: 16, left: 16, bottom: 0, right: 16) }
+    /// 选项区域底边相对 `safeAreaLayoutGuide.bottom` 向上偏移（含 Home 条上方留白）。
+    var sheetContentBottomInsetFromSafeArea: CGFloat { 16 }
 
     private var didPlayEntrance = false
 
@@ -64,21 +71,31 @@ class AppBottomSheetViewController: UIViewController {
         view.addSubview(sheetBackground)
         sheetBackground.addSubview(sheetContentView)
 
+        applySheetChrome()
+
         dimView.snp.makeConstraints { $0.edges.equalToSuperview() }
 
+        let m = sheetContentLayoutMargins
         sheetContentView.snp.makeConstraints { make in
-            make.top.equalToSuperview().offset(16)
-            make.leading.trailing.equalToSuperview().inset(16)
-            make.bottom.equalTo(view.safeAreaLayoutGuide.snp.bottom).offset(-16)
+            make.top.equalToSuperview().offset(m.top)
+            make.leading.equalToSuperview().offset(m.left)
+            make.trailing.equalToSuperview().offset(-m.right)
+            make.bottom.equalTo(view.safeAreaLayoutGuide.snp.bottom).offset(-sheetContentBottomInsetFromSafeArea)
         }
         sheetBackground.snp.makeConstraints { make in
             make.leading.trailing.bottom.equalToSuperview()
-            make.top.equalTo(sheetContentView.snp.top).offset(-16)
+            make.top.equalTo(sheetContentView.snp.top).offset(-m.top)
         }
 
         sheetBackground.transform = CGAffineTransform(translationX: 0, y: UIScreen.main.bounds.height)
 
         setupSheetContent()
+    }
+
+    /// 子类可覆盖以应用面板颜色与圆角（若在 `init` 中无法访问 `sheetBackground`）。
+    func applySheetChrome() {
+        sheetBackground.backgroundColor = sheetPanelBackgroundColor
+        sheetBackground.layer.cornerRadius = sheetPanelTopCornerRadius
     }
 
     /// 子类覆盖以添加内容；默认空实现。
