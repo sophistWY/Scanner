@@ -13,6 +13,9 @@ final class ExportResultViewController: BaseViewController {
 
     private let document: DocumentModel
 
+    /// 避免在分享弹窗未关闭时重复弹出。
+    private var isPresentingShare = false
+
     private lazy var pdfView: PDFView = {
         let pv = PDFView()
         pv.autoScales = true
@@ -66,6 +69,8 @@ final class ExportResultViewController: BaseViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        // 从编辑页 push 时若曾与全屏 HUD 同帧，SVProgressHUD 可能仍在收起；这里保证结果页不出现残留菊花。
+        hideLoading()
         customNavigationBar.configureBarAppearance(
             backgroundColor: .systemBackground,
             titleColor: .label,
@@ -88,7 +93,7 @@ final class ExportResultViewController: BaseViewController {
     }
 
     override func customNavigationBarRightButtonTapped() {
-        sharePDF()
+        sharePDF(popoverAnchor: customNavigationBar.rightButton)
     }
 
     private var displayTitle: String {
@@ -108,21 +113,37 @@ final class ExportResultViewController: BaseViewController {
         pdfView.document = pdfDoc
     }
 
-    private func sharePDF() {
+    /// - Parameter popoverAnchor: iPad 弹窗锚点；`nil` 时回退到导航栏右侧按钮。
+    private func sharePDF(popoverAnchor: UIView? = nil) {
+        guard !isPresentingShare else { return }
         let pdfURL = document.pdfURL
         guard FileHelper.shared.fileExists(at: pdfURL) else {
             showError("文件不存在")
             return
         }
+        isPresentingShare = true
+        showLoading()
         let activityVC = UIActivityViewController(activityItems: [pdfURL], applicationActivities: nil)
+        let anchor = popoverAnchor ?? customNavigationBar.rightButton
         if let popover = activityVC.popoverPresentationController {
-            popover.sourceView = customNavigationBar.rightButton
-            popover.sourceRect = customNavigationBar.rightButton.bounds
+            popover.sourceView = anchor
+            popover.sourceRect = anchor.bounds
         }
-        present(activityVC, animated: true)
+        activityVC.completionWithItemsHandler = { [weak self] _, _, _, _ in
+            guard let self else { return }
+            self.isPresentingShare = false
+            self.hideLoading()
+        }
+        // 先让主线程画出一帧 HUD，再 present；否则常与系统分享转场抢同一帧，菊花出现晚。
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.present(activityVC, animated: true) { [weak self] in
+                self?.hideLoading()
+            }
+        }
     }
 
     @objc private func exportNowTapped() {
-        sharePDF()
+        sharePDF(popoverAnchor: exportNowButton)
     }
 }

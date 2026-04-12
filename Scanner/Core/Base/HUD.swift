@@ -25,7 +25,9 @@ final class HUD {
         SVProgressHUD.setDefaultMaskType(.black)
         SVProgressHUD.setDefaultStyle(.dark)
         SVProgressHUD.setMaximumDismissTimeInterval(2.0)
-        SVProgressHUD.setMinimumDismissTimeInterval(1.0)
+        // 必须为 0：`minimumDismissTimeInterval > 0` 时 `dismiss()` 会在「展示未满 N 秒」时延后真正收起，
+        // 分享弹窗已出现/已关闭时菊花仍可能多停 1s+，体感像卡住。
+        SVProgressHUD.setMinimumDismissTimeInterval(0)
         SVProgressHUD.setCornerRadius(12)
         SVProgressHUD.setRingThickness(2.5)
         SVProgressHUD.setFont(.systemFont(ofSize: 15, weight: .medium))
@@ -34,16 +36,30 @@ final class HUD {
     }
 
     func showLoading(message: String? = nil) {
-        DispatchQueue.main.async {
+        let work = { [self] in
             self.configureIfNeeded()
-            SVProgressHUD.show(withStatus: message)
+            if let message = message, !message.isEmpty {
+                SVProgressHUD.show(withStatus: message)
+            } else {
+                SVProgressHUD.show()
+            }
+        }
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
         }
     }
 
     func hideLoading() {
-        DispatchQueue.main.async {
+        let work = { [self] in
             self.configureIfNeeded()
             SVProgressHUD.dismiss()
+        }
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
         }
     }
 

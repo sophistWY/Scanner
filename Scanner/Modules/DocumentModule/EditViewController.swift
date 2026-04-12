@@ -66,6 +66,10 @@ final class EditViewController: BaseViewController {
             updateFilterSelection()
             if oldValue != currentPage {
                 generateFilterThumbnails()
+                // 多页时翻到新页：若该页为「智能优化」且尚无云端结果，自动开始处理（与相册加图后 `reapplyCurrentFilterForPage` 一致）。
+                if viewIfLoaded?.window != nil {
+                    ensureSmartOptimizeIfNeededForCurrentPage()
+                }
             }
         }
     }
@@ -359,6 +363,7 @@ final class EditViewController: BaseViewController {
         generateFilterThumbnails()
         updateFilterSelection()
         updateAddPhotoAvailability()
+        ensureSmartOptimizeIfNeededForCurrentPage()
     }
 
     /// 冷启动：从沙盒恢复智能优化底图与各滤镜成品；锐化/灰度以智能优化结果为输入源。
@@ -584,6 +589,12 @@ final class EditViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         applyLightNavigationBarAppearance()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // 扫描完成后进入编辑页：若默认/记忆选中「智能优化」，需自动走云端流程（否则仅 UI 选中，需再点一次滤镜）。
+        ensureSmartOptimizeIfNeededForCurrentPage()
     }
 
     private func applyLightNavigationBarAppearance() {
@@ -948,6 +959,15 @@ final class EditViewController: BaseViewController {
         }
     }
 
+    /// 当前页已选「智能优化」且本地无缓存、也未在跑云端任务时，自动发起智能优化（进入编辑页 / 翻页时）。
+    private func ensureSmartOptimizeIfNeededForCurrentPage() {
+        let page = currentPage
+        guard page >= 0, page < appliedFilterIndex.count else { return }
+        guard appliedFilterIndex[page] == Self.smartOptimizeFilterIndex else { return }
+        guard smartOptimizeProcessingPage == nil else { return }
+        applySmartOptimizeFilter(forPage: page)
+    }
+
     /// 云端「智能优化」：有缓存则直接套用；否则上传 → 轮询 → 下载并写入缓存（裁剪后缓存已清空）。
     /// - Parameter targetPage: 指定页码；`nil` 时使用当前 `currentPage`（点选滤镜条场景）。
     private func applySmartOptimizeFilter(forPage targetPage: Int? = nil) {
@@ -1062,8 +1082,6 @@ final class EditViewController: BaseViewController {
         exportButton.isEnabled = false
         addPhotoButton.isEnabled = false
         exportButton.alpha = 0.7
-        showLoading(message: "导出中...")
-
         DocumentEditPersistence.shared.cancelPendingManifestCommit()
         manifestRevision += 1
         let manifestJSON = buildManifestJSON()
@@ -1120,7 +1138,6 @@ final class EditViewController: BaseViewController {
         exportButton.isEnabled = true
         addPhotoButton.isEnabled = true
         exportButton.alpha = 1
-        hideLoading()
     }
 
 }

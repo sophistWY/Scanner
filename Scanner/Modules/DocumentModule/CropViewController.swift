@@ -96,7 +96,20 @@ final class CropViewController: BaseViewController {
     }
 
     override func customNavigationBarLeftButtonTapped() {
-        dismiss(animated: true)
+        dismissOrPopFromCropFlow()
+    }
+
+    /// 编辑页用「present 包裹 Nav」进入时走 dismiss；引导调整页用 push 进入时必须 pop，否则关闭无效。
+    private func dismissOrPopFromCropFlow() {
+        guard let nav = navigationController else {
+            dismiss(animated: true)
+            return
+        }
+        if nav.presentingViewController != nil {
+            nav.dismiss(animated: true)
+        } else {
+            nav.popViewController(animated: true)
+        }
     }
 
     override func setupConstraints() {
@@ -180,7 +193,7 @@ final class CropViewController: BaseViewController {
     @objc private func confirmTapped() {
         let c = cropView.corners
         guard c.count == 4, imageRect.width > 0, imageRect.height > 0 else {
-            dismiss(animated: true)
+            dismissOrPopFromCropFlow()
             return
         }
 
@@ -211,7 +224,7 @@ final class CropViewController: BaseViewController {
             DispatchQueue.main.async {
                 HUD.shared.hideLoading()
                 self.onCrop(cropped)
-                self.dismiss(animated: true)
+                self.dismissOrPopFromCropFlow()
             }
         }
     }

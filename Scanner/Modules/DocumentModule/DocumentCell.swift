@@ -34,18 +34,27 @@ final class DocumentCollectionViewCell: UICollectionViewCell {
         return iv
     }()
 
+    private let textStackView: UIStackView = {
+        let s = UIStackView()
+        s.axis = .vertical
+        s.spacing = 4
+        s.alignment = .fill
+        s.distribution = .fill
+        return s
+    }()
+
     private let nameLabel: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 16, weight: .semibold)
-        label.textColor = .label
+        label.font = UIFont(name: "PingFangSC-Medium", size: 14) ?? .systemFont(ofSize: 14, weight: .medium)
+        label.textColor = UIColor(hex: 0x444444)
         label.numberOfLines = 1
         return label
     }()
 
     private let detailLabel: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 13)
-        label.textColor = UIColor(hex: 0x9B9B9B)
+        label.font = UIFont(name: "PingFangSC-Regular", size: 12) ?? .systemFont(ofSize: 12, weight: .regular)
+        label.textColor = UIColor(hex: 0x444444)
         return label
     }()
 
@@ -66,8 +75,9 @@ final class DocumentCollectionViewCell: UICollectionViewCell {
         contentView.addSubview(shadowContainer)
         shadowContainer.addSubview(cardView)
         cardView.addSubview(pdfImageView)
-        cardView.addSubview(nameLabel)
-        cardView.addSubview(detailLabel)
+        cardView.addSubview(textStackView)
+        textStackView.addArrangedSubview(nameLabel)
+        textStackView.addArrangedSubview(detailLabel)
 
         shadowContainer.snp.makeConstraints { make in
             make.edges.equalToSuperview()
@@ -80,20 +90,13 @@ final class DocumentCollectionViewCell: UICollectionViewCell {
         pdfImageView.snp.makeConstraints { make in
             make.trailing.equalToSuperview().offset(-14)
             make.centerY.equalToSuperview()
-            make.width.height.equalTo(36)
+            make.width.height.equalTo(44)
         }
 
-        nameLabel.snp.makeConstraints { make in
+        textStackView.snp.makeConstraints { make in
             make.leading.equalToSuperview().offset(14)
             make.trailing.lessThanOrEqualTo(pdfImageView.snp.leading).offset(-10)
-            make.top.equalToSuperview().offset(14)
-        }
-
-        detailLabel.snp.makeConstraints { make in
-            make.leading.equalTo(nameLabel)
-            make.trailing.equalTo(nameLabel)
-            make.top.equalTo(nameLabel.snp.bottom).offset(4)
-            make.bottom.lessThanOrEqualToSuperview().offset(-12)
+            make.centerY.equalToSuperview()
         }
     }
 

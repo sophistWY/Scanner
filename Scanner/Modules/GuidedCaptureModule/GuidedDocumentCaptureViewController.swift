@@ -21,8 +21,8 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
 
     private let kind: GuidedDocumentKind
     private var currentStepIndex: Int = 0
-    /// Processed images from API (one per completed step).
-    private var processedImages: [UIImage] = []
+    /// Normalized full-frame originals only; server processing runs on 「调整图片」.
+    private var capturedOriginals: [UIImage] = []
 
     private let cameraManager = CameraManager(mode: .photo)
     private var isProcessing = false
@@ -240,15 +240,15 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
         hintLabel.text = step.bottomHint
         overlayImageView.image = UIImage(named: step.overlayAssetName)
         landscapeHintLabel.isHidden = !step.showsLandscapeHint
-        thumbButton.isHidden = processedImages.isEmpty
-        if let last = processedImages.last {
+        thumbButton.isHidden = capturedOriginals.isEmpty
+        if let last = capturedOriginals.last {
             let t = last.constrainedToMaxPixelLength(AppConstants.ScanImage.thumbnailMaxPixelLength)
             thumbButton.setImage(t, for: .normal)
         }
     }
 
     @objc private func backTapped() {
-        if processedImages.isEmpty && currentStepIndex == 0 {
+        if capturedOriginals.isEmpty && currentStepIndex == 0 {
             popOrDismiss()
             return
         }
@@ -284,7 +284,6 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
         guard !isProcessing else { return }
         isProcessing = true
         shutterButton.isEnabled = false
-        showLoading(message: "处理中…")
         cameraManager.capturePhoto()
     }
 
@@ -302,44 +301,21 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
 
     private func handleCapturedImage(_ image: UIImage) {
         let normalized = image.constrainedToMaxPixelLength(AppConstants.ScanImage.maxPixelLength)
-        GuidedDocumentAPI.processImage(normalized, kind: kind, stepIndex: currentStepIndex) { [weak self] result in
-            guard let self else { return }
-            self.hideLoading()
-            self.isProcessing = false
-            self.shutterButton.isEnabled = true
-            switch result {
-            case .success(let out):
-                self.processedImages.append(out)
-                let steps = self.kind.captureSteps
-                if self.processedImages.count >= steps.count {
-                    self.finishCaptureFlow()
-                } else {
-                    self.currentStepIndex += 1
-                    self.refreshStepUI()
-                }
-            case .failure(let error):
-                HUD.shared.showToast((error as? LocalizedError)?.errorDescription ?? "处理失败")
-            }
+        capturedOriginals.append(normalized)
+        isProcessing = false
+        shutterButton.isEnabled = true
+        let steps = kind.captureSteps
+        if capturedOriginals.count >= steps.count {
+            finishCaptureFlow()
+        } else {
+            currentStepIndex += 1
+            refreshStepUI()
         }
     }
 
     private func finishCaptureFlow() {
-        let layout = kind.a4LayoutKind
-        let images: [UIImage]
-        switch layout {
-        case .cardHalfStack:
-            guard processedImages.count >= 2 else { return }
-            images = [processedImages[0], processedImages[1]]
-        default:
-            guard let f = processedImages.first else { return }
-            images = [f]
-        }
-        guard let composite = A4CompositeRenderer.compose(layout: layout, images: images) else {
-            HUD.shared.showToast("合成失败")
-            return
-        }
         let name = "\(kind.defaultDocumentNamePrefix)_\(Date().formatted(style: .short))"
-        let adjust = GuidedDocumentAdjustViewController(compositeImage: composite, documentName: name, kind: kind)
+        let adjust = GuidedDocumentAdjustViewController(originalImages: capturedOriginals, documentName: name, kind: kind)
         adjust.adjustDelegate = guidedAdjustDelegate
         navigationController?.pushViewController(adjust, animated: true)
     }
@@ -354,7 +330,6 @@ extension GuidedDocumentCaptureViewController: CameraManagerDelegate {
     }
 
     func cameraManager(_ manager: CameraManager, didFailCapture error: Error?) {
-        hideLoading()
         isProcessing = false
         shutterButton.isEnabled = true
         HUD.shared.showToast("拍照失败")
@@ -373,11 +348,9 @@ extension GuidedDocumentCaptureViewController: PHPickerViewControllerDelegate {
         guard !isProcessing else { return }
         isProcessing = true
         shutterButton.isEnabled = false
-        showLoading(message: "处理中…")
         first.itemProvider.loadObject(ofClass: UIImage.self) { [weak self] obj, _ in
             DispatchQueue.main.async {
                 guard let self, let img = obj as? UIImage else {
-                    self?.hideLoading()
                     self?.isProcessing = false
                     self?.shutterButton.isEnabled = true
                     return
