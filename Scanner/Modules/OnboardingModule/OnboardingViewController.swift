@@ -103,16 +103,15 @@ final class OnboardingViewController: BaseViewController {
         }
 
         descriptionLabel.snp.makeConstraints { make in
-            make.leading.equalToSuperview().offset(OnboardingSubscriptionLayoutConstants.horizontalMargin)
+            make.centerX.equalToSuperview()
             make.width.equalTo(OnboardingSubscriptionLayoutConstants.descriptionTextWidth)
             make.height.equalTo(OnboardingSubscriptionLayoutConstants.descriptionTextHeight)
             make.bottom.equalTo(continueButton.snp.top).offset(-OnboardingSubscriptionLayoutConstants.descriptionToButtonSpacing)
         }
 
         heroImageView.snp.makeConstraints { make in
-            make.top.equalToSuperview()
-            make.leading.trailing.equalToSuperview()
-            make.bottom.equalTo(descriptionLabel.snp.top).offset(-12)
+            make.top.leading.trailing.equalToSuperview()
+            make.height.equalTo(heroImageView.snp.width).multipliedBy(1626/750.0)
         }
     }
 

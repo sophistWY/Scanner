@@ -38,7 +38,7 @@ final class SubscriptionViewController: BaseViewController {
     private lazy var restoreButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.setTitle("恢复订阅", for: .normal)
-        btn.setTitleColor(OnboardingSubscriptionLayoutConstants.descriptionTextColor, for: .normal)
+        btn.setTitleColor(.white, for: .normal)
         btn.titleLabel?.font = OnboardingSubscriptionLayoutConstants.pingFangRegular(
             size: OnboardingSubscriptionLayoutConstants.subscriptionRestoreFontSize
         )
@@ -48,9 +48,9 @@ final class SubscriptionViewController: BaseViewController {
 
     private lazy var closeButton: UIButton = {
         let btn = UIButton(type: .custom)
-        let img = UIImage(named: "icon_close")?.withRenderingMode(.alwaysTemplate)
+        let img = UIImage(named: "icon_close")?.withRenderingMode(.alwaysOriginal)
         btn.setImage(img, for: .normal)
-        btn.tintColor = OnboardingSubscriptionLayoutConstants.descriptionTextColor
+//        btn.tintColor = OnboardingSubscriptionLayoutConstants.descriptionTextColor
         btn.imageView?.contentMode = .scaleAspectFit
         btn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         return btn
@@ -114,26 +114,29 @@ final class SubscriptionViewController: BaseViewController {
     override func setupConstraints() {
         heroImageView.snp.makeConstraints { make in
             make.top.equalToSuperview()
-            make.leading.trailing.equalToSuperview()
-            make.bottom.equalTo(descriptionLabel.snp.top).offset(-16)
+            make.leading.trailing.equalToSuperview().inset(-1)
+            make.height.equalTo(heroImageView.snp.width).multipliedBy(1626/750.0)
+//            make.bottom.equalTo(descriptionLabel.snp.top).offset(-16)
         }
 
         descriptionLabel.snp.makeConstraints { make in
-            make.leading.equalToSuperview().offset(OnboardingSubscriptionLayoutConstants.horizontalMargin)
+            make.centerX.equalToSuperview()
             make.width.equalTo(OnboardingSubscriptionLayoutConstants.descriptionTextWidth)
             make.height.equalTo(OnboardingSubscriptionLayoutConstants.descriptionTextHeight)
             make.bottom.equalTo(subscribeButton.snp.top).offset(-OnboardingSubscriptionLayoutConstants.descriptionToButtonSpacing)
         }
 
-        footerStack.snp.makeConstraints { make in
-            make.leading.equalToSuperview().offset(OnboardingSubscriptionLayoutConstants.horizontalMargin)
-            make.bottom.equalTo(view.safeAreaLayoutGuide.snp.bottom).offset(-8)
-        }
+      
 
         subscribeButton.snp.makeConstraints { make in
             make.leading.trailing.equalToSuperview().inset(OnboardingSubscriptionLayoutConstants.horizontalMargin)
             make.height.equalTo(OnboardingSubscriptionLayoutConstants.primaryButtonHeight)
-            make.bottom.equalTo(footerStack.snp.top).offset(-16)
+            make.bottom.equalTo(view.safeAreaLayoutGuide.snp.bottom).offset(-OnboardingSubscriptionLayoutConstants.bottomOffsetFromSafeArea)
+        }
+        
+        footerStack.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.top.equalTo(subscribeButton.snp.bottom).offset(40)
         }
 
         restoreButton.snp.makeConstraints { make in
@@ -232,7 +235,7 @@ final class SubscriptionViewController: BaseViewController {
                 }
             } catch {
                 hideLoading()
-                showError(error.localizedDescription)
+                showError(ApplePayManager.userFacingRestoreMessage(for: error))
                 onFinish?(.failed(error))
             }
         }
@@ -248,13 +251,10 @@ final class SubscriptionViewController: BaseViewController {
                 complete(with: .purchased)
             } catch ApplePayError.userCancelled {
                 hideLoading()
-            } catch let error as ApplePayError {
-                hideLoading()
-                showError(error.localizedDescription)
-                onFinish?(.failed(error))
+                showToast("已取消")
             } catch {
                 hideLoading()
-                showError(error.localizedDescription)
+                showError(ApplePayManager.userFacingPurchaseMessage(for: error))
                 onFinish?(.failed(error))
             }
         }

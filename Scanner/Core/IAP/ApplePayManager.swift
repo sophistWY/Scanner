@@ -78,6 +78,11 @@ final class ApplePayManager {
         let value = period.value
         switch period.unit {
         case .day:
+            // Weekly products are often reported as 7 days instead of `.week`; normalize to 周.
+            if value > 0, value % 7 == 0 {
+                let weeks = value / 7
+                return weeks == 1 ? "/周" : "/\(weeks)周"
+            }
             return value == 1 ? "/天" : "/\(value)天"
         case .week:
             return value == 1 ? "/周" : "/\(value)周"
@@ -180,6 +185,42 @@ final class ApplePayManager {
         } catch {
             Logger.shared.log("Transaction update verify failed: \(error)", level: .error)
         }
+    }
+}
+
+extension ApplePayManager {
+    /// 界面展示用中文文案，不直接使用系统或 StoreKit 的 `localizedDescription`。
+    static func userFacingPurchaseMessage(for error: Error) -> String {
+        if let pay = error as? ApplePayError {
+            switch pay {
+            case .userCancelled:
+                return "已取消"
+            case .productNotFound:
+                return "未找到订阅商品，请稍后重试"
+            case .unverifiedTransaction:
+                return "交易验证失败，请重试"
+            case .purchaseFailed(let message):
+                return message
+            }
+        }
+        return "支付失败，请稍后重试"
+    }
+
+    /// 恢复订阅失败时的中文提示（不展示系统英文错误）。
+    static func userFacingRestoreMessage(for error: Error) -> String {
+        if let pay = error as? ApplePayError {
+            switch pay {
+            case .userCancelled:
+                return "已取消"
+            case .productNotFound:
+                return "未找到订阅商品，请稍后重试"
+            case .unverifiedTransaction:
+                return "交易验证失败，请重试"
+            case .purchaseFailed(let message):
+                return message
+            }
+        }
+        return "恢复订阅失败，请稍后重试"
     }
 }
 
