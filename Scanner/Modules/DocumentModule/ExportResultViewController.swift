@@ -7,6 +7,7 @@
 
 import UIKit
 import PDFKit
+import Photos
 import SnapKit
 
 final class ExportResultViewController: BaseViewController {
@@ -29,7 +30,8 @@ final class ExportResultViewController: BaseViewController {
         let button = UIButton(type: .system)
         var config = UIButton.Configuration.filled()
         config.title = "立即导出"
-        config.image = UIImage(systemName: "square.and.arrow.down")
+        let exportIcon = UIImage(named: "download_badge_wechat")?.withRenderingMode(.alwaysOriginal)
+        config.image = exportIcon
         config.imagePadding = 8
         config.imagePlacement = .leading
         config.baseBackgroundColor = UIColor.appThemePrimary
@@ -82,7 +84,7 @@ final class ExportResultViewController: BaseViewController {
     override func setupConstraints() {
         pdfView.snp.makeConstraints { make in
             make.top.equalTo(customNavigationBar.snp.bottom)
-            make.leading.trailing.equalToSuperview()
+            make.leading.trailing.equalToSuperview().inset(25)
             make.bottom.equalTo(exportNowButton.snp.top).offset(-12)
         }
         exportNowButton.snp.makeConstraints { make in
@@ -144,6 +146,147 @@ final class ExportResultViewController: BaseViewController {
     }
 
     @objc private func exportNowTapped() {
-        sharePDF(popoverAnchor: exportNowButton)
+        let sheet = ExportOptionsSheetViewController()
+        // 与基类 init 一致；显式再写一次，避免将来改动初始化时机时又出现 pageSheet 缩放底层
+        sheet.modalPresentationStyle = .overFullScreen
+        sheet.modalTransitionStyle = .coverVertical
+        sheet.onSaveImages = { [weak self] in
+            self?.savePDFPagesAsImagesToPhotoLibrary()
+        }
+        sheet.onSharePDF = { [weak self] in
+            self?.sharePDF(popoverAnchor: self?.exportNowButton)
+        }
+        present(sheet, animated: false)
+    }
+
+    private func savePDFPagesAsImagesToPhotoLibrary() {
+        PermissionHelper.shared.requestPhotoLibraryAddPermission(from: self) { [weak self] granted in
+            guard let self, granted else { return }
+            let pdfURL = self.document.pdfURL
+            guard FileHelper.shared.fileExists(at: pdfURL),
+                  let pdfDoc = PDFDocument(url: pdfURL) else {
+                self.showError("PDF文件不存在")
+                return
+            }
+            self.showLoading()
+            DispatchQueue.global(qos: .userInitiated).async {
+                var images: [UIImage] = []
+                for i in 0..<pdfDoc.pageCount {
+                    guard let page = pdfDoc.page(at: i),
+                          let img = Self.renderPDFPageToImage(page) else { continue }
+                    images.append(img)
+                }
+                DispatchQueue.main.async {
+                    self.hideLoading()
+                    guard !images.isEmpty else {
+                        self.showError("导出图片失败")
+                        return
+                    }
+                    PHPhotoLibrary.shared().performChanges({
+                        for image in images {
+                            PHAssetChangeRequest.creationRequestForAsset(from: image)
+                        }
+                    }, completionHandler: { success, error in
+                        DispatchQueue.main.async {
+                            if success {
+                                self.showSuccess("已保存到相册")
+                            } else {
+                                self.showError(error?.localizedDescription ?? "保存失败")
+                            }
+                        }
+                    })
+                }
+            }
+        }
+    }
+
+    private static func renderPDFPageToImage(_ page: PDFPage) -> UIImage? {
+        let pageRect = page.bounds(for: .mediaBox)
+        let size = CGSize(width: pageRect.width, height: pageRect.height)
+        guard size.width > 0, size.height > 0 else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreen.main.scale
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { ctx in
+            UIColor.white.set()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            ctx.cgContext.saveGState()
+            ctx.cgContext.translateBy(x: 0, y: size.height)
+            ctx.cgContext.scaleBy(x: 1, y: -1)
+            page.draw(with: .mediaBox, to: ctx.cgContext)
+            ctx.cgContext.restoreGState()
+        }
+    }
+}
+
+// MARK: - 导出选项底部弹窗
+
+private final class ExportOptionsSheetViewController: AppBottomSheetViewController {
+
+    var onSaveImages: (() -> Void)?
+    var onSharePDF: (() -> Void)?
+
+    override func setupSheetContent() {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 12
+        sheetContentView.addSubview(stack)
+        stack.snp.makeConstraints { $0.edges.equalToSuperview() }
+
+        let saveBtn = makeActionButton(
+            title: "图片形式保存到相册",
+            image: UIImage(named: "illustration_picture")?.withRenderingMode(.alwaysOriginal)
+        )
+        let shareBtn = makeActionButton(
+            title: "PDF发送到微信",
+            image: wechatPlaceholderImage()
+        )
+
+        saveBtn.addTarget(self, action: #selector(saveTapped), for: .touchUpInside)
+        shareBtn.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
+
+        stack.addArrangedSubview(saveBtn)
+        stack.addArrangedSubview(shareBtn)
+
+        saveBtn.snp.makeConstraints { $0.height.equalTo(56) }
+        shareBtn.snp.makeConstraints { $0.height.equalTo(56) }
+    }
+
+    private func makeActionButton(title: String, image: UIImage?) -> UIButton {
+        let button = UIButton(type: .system)
+        var config = UIButton.Configuration.filled()
+        config.title = title
+        config.image = image
+        config.imagePlacement = .leading
+        config.imagePadding = 10
+        config.baseForegroundColor = .label
+        config.baseBackgroundColor = .secondarySystemGroupedBackground
+        config.cornerStyle = .large
+        config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
+        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var out = incoming
+            out.font = .systemFont(ofSize: 16, weight: .medium)
+            return out
+        }
+        button.configuration = config
+        return button
+    }
+
+    private func wechatPlaceholderImage() -> UIImage? {
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
+        guard let raw = UIImage(systemName: "message.fill", withConfiguration: symbolConfig) else { return nil }
+        return raw.withTintColor(UIColor(red: 0.09, green: 0.64, blue: 0.29, alpha: 1), renderingMode: .alwaysOriginal)
+    }
+
+    @objc private func saveTapped() {
+        dismissSheet { [weak self] in
+            self?.onSaveImages?()
+        }
+    }
+
+    @objc private func shareTapped() {
+        dismissSheet { [weak self] in
+            self?.onSharePDF?()
+        }
     }
 }
