@@ -42,8 +42,7 @@ enum ScanType {
         case .bankCard:
             return .singleFrame(assetName: "frame_bank_card")
         case .businessLicense:
-            // Dedicated asset can replace this name when available.
-            return .singleFrame(assetName: "frame_bank_card")
+            return .singleFrame(assetName: "frame_business_license_diploma")
         }
     }
 

@@ -63,22 +63,25 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
         return iv
     }()
 
+    /// 非身份证/银行卡：步骤标题在顶栏。
+    private lazy var navigationTitleLabel: UILabel = {
+        let l = UILabel()
+        l.textColor = .white
+        l.font = .systemFont(ofSize: 17, weight: .semibold)
+        l.textAlignment = .center
+        l.numberOfLines = 1
+        l.adjustsFontSizeToFitWidth = true
+        l.minimumScaleFactor = 0.75
+        return l
+    }()
+
+    /// 身份证/银行卡：步骤标题紧贴取景框上方（原布局，勿改相对位置）。
     private lazy var stepTitleLabel: UILabel = {
         let l = UILabel()
         l.textColor = .white
         l.font = .systemFont(ofSize: 16, weight: .semibold)
         l.textAlignment = .center
         l.numberOfLines = 2
-        return l
-    }()
-
-    private lazy var landscapeHintLabel: UILabel = {
-        let l = UILabel()
-        l.text = "国徽方向"
-        l.textColor = .white.withAlphaComponent(0.9)
-        l.font = .systemFont(ofSize: 12, weight: .medium)
-        l.transform = CGAffineTransform(rotationAngle: -.pi / 2)
-        l.isHidden = true
         return l
     }()
 
@@ -146,17 +149,17 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
             if let gk = item.guidedCaptureKind {
                 return gk.captureSteps
             }
-            return [
-                GuidedCaptureStep(
-                    stepIndex: 0,
-                    title: item.name,
-                    bottomHint: "请按提示，线框内拍摄",
-                    overlayAssetName: "frame_business_license_diploma",
-                    showsLandscapeHint: false
-                )
-            ]
+            return [item.guidedCaptureStepForGenericCertificate()]
         }
         return kind.captureSteps
+    }
+
+    /// 身份证、银行卡（含首页列表进入）：专用线框 + 标题在预览区紧挨矩形上方。
+    private var usesCardStyleTitleAboveOverlay: Bool {
+        if let item = pdfTypeListItem, let gk = item.guidedCaptureKind {
+            return gk == .nationalID || gk == .bankCard
+        }
+        return kind == .nationalID || kind == .bankCard
     }
 
     override var prefersCustomNavigationBarHidden: Bool { true }
@@ -167,12 +170,12 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
         view.backgroundColor = .black
         view.addSubview(topBar)
         topBar.addSubview(backButton)
+        topBar.addSubview(navigationTitleLabel)
         topBar.addSubview(torchButton)
         view.addSubview(previewContainer)
         previewContainer.layer.addSublayer(cameraManager.previewLayer)
         previewContainer.addSubview(overlayImageView)
         previewContainer.addSubview(stepTitleLabel)
-        previewContainer.addSubview(landscapeHintLabel)
         view.addSubview(bottomBar)
         bottomBar.addSubview(hintLabel)
         bottomBar.addSubview(galleryButton)
@@ -196,6 +199,12 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
             make.centerY.equalTo(backButton)
             make.width.height.equalTo(44)
         }
+        navigationTitleLabel.snp.makeConstraints { make in
+            make.centerX.equalToSuperview()
+            make.centerY.equalTo(backButton)
+            make.leading.greaterThanOrEqualTo(backButton.snp.trailing).offset(8)
+            make.trailing.lessThanOrEqualTo(torchButton.snp.leading).offset(-8)
+        }
         topBar.snp.makeConstraints { make in
             make.bottom.equalTo(backButton.snp.bottom).offset(8)
         }
@@ -204,18 +213,10 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(bottomBar.snp.top)
         }
-        overlayImageView.snp.makeConstraints { make in
-            make.center.equalToSuperview()
-            make.leading.trailing.equalToSuperview().inset(24)
-            make.height.equalTo(overlayImageView.snp.width).multipliedBy(0.63)
-        }
+        applyOverlayAspectRatioForCurrentStep()
         stepTitleLabel.snp.makeConstraints { make in
             make.leading.trailing.equalToSuperview().inset(24)
             make.bottom.equalTo(overlayImageView.snp.top).offset(-12)
-        }
-        landscapeHintLabel.snp.makeConstraints { make in
-            make.trailing.equalTo(overlayImageView.snp.trailing).offset(-8)
-            make.centerY.equalTo(overlayImageView)
         }
         bottomBar.snp.makeConstraints { make in
             make.leading.trailing.bottom.equalToSuperview()
@@ -265,14 +266,42 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
         let steps = effectiveCaptureSteps
         guard currentStepIndex < steps.count else { return }
         let step = steps[currentStepIndex]
-        stepTitleLabel.text = step.title
+        let cardStyle = usesCardStyleTitleAboveOverlay
+        stepTitleLabel.isHidden = !cardStyle
+        navigationTitleLabel.isHidden = cardStyle
+        if cardStyle {
+            stepTitleLabel.text = step.title
+            navigationTitleLabel.text = nil
+            title = nil
+        } else {
+            navigationTitleLabel.text = step.title
+            title = step.title
+            stepTitleLabel.text = nil
+        }
         hintLabel.text = step.bottomHint
         overlayImageView.image = UIImage(named: step.overlayAssetName)
-        landscapeHintLabel.isHidden = !step.showsLandscapeHint
         thumbButton.isHidden = capturedOriginals.isEmpty
         if let last = capturedOriginals.last {
             let t = last.constrainedToMaxPixelLength(AppConstants.ScanImage.thumbnailMaxPixelLength)
             thumbButton.setImage(t, for: .normal)
+        }
+        applyOverlayAspectRatioForCurrentStep()
+    }
+
+    /// 按当前步骤线框图比例约束取景框；身份证/银行卡边距与原先一致。
+    private func applyOverlayAspectRatioForCurrentStep() {
+        let steps = effectiveCaptureSteps
+        guard currentStepIndex < steps.count else { return }
+        let name = steps[currentStepIndex].overlayAssetName
+        let aspect: CGFloat = {
+            guard let img = UIImage(named: name), img.size.width > 0 else { return 0.63 }
+            return img.size.height / img.size.width
+        }()
+        let hInset: CGFloat = usesCardStyleTitleAboveOverlay ? 24 : 20
+        overlayImageView.snp.remakeConstraints { make in
+            make.center.equalToSuperview()
+            make.leading.trailing.equalToSuperview().inset(hInset)
+            make.height.equalTo(overlayImageView.snp.width).multipliedBy(aspect)
         }
     }
 
@@ -416,16 +445,6 @@ extension GuidedDocumentCaptureViewController: PHPickerViewControllerDelegate {
                 self.handleCapturedImage(img)
             }
         }
-    }
-}
-
-private extension PdfTypeItem {
-    /// 与旧版首页证件入口一致：身份证 / 银行卡为双面及专用浮层；名称需含「银行卡」「身份证」以匹配接口文案。
-    var guidedCaptureKind: GuidedDocumentKind? {
-        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if n.contains("银行卡") { return .bankCard }
-        if n.contains("身份证") { return .nationalID }
-        return nil
     }
 }
 

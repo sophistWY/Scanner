@@ -78,15 +78,13 @@ enum GuidedDocumentKind: String, Codable, CaseIterable {
                     stepIndex: 0,
                     title: "1. 身份证人像面",
                     bottomHint: "请按提示，线框内拍摄",
-                    overlayAssetName: "frame_id_card_front",
-                    showsLandscapeHint: false
+                    overlayAssetName: "frame_id_card_front"
                 ),
                 GuidedCaptureStep(
                     stepIndex: 1,
                     title: "2. 身份证国徽面",
                     bottomHint: "请按提示，线框内拍摄",
-                    overlayAssetName: "frame_id_card_back",
-                    showsLandscapeHint: false
+                    overlayAssetName: "frame_id_card_back"
                 )
             ]
         case .bankCard:
@@ -95,15 +93,13 @@ enum GuidedDocumentKind: String, Codable, CaseIterable {
                     stepIndex: 0,
                     title: "1. 银行卡正面",
                     bottomHint: "请按提示，线框内拍摄",
-                    overlayAssetName: "frame_bank_card",
-                    showsLandscapeHint: false
+                    overlayAssetName: "frame_bank_card"
                 ),
                 GuidedCaptureStep(
                     stepIndex: 1,
                     title: "2. 银行卡背面",
                     bottomHint: "请按提示，线框内拍摄",
-                    overlayAssetName: "frame_bank_card",
-                    showsLandscapeHint: false
+                    overlayAssetName: "frame_bank_card"
                 )
             ]
         case .marriageCertificate:
@@ -112,8 +108,7 @@ enum GuidedDocumentKind: String, Codable, CaseIterable {
                     stepIndex: 0,
                     title: "结婚证",
                     bottomHint: "请按提示，线框内拍摄",
-                    overlayAssetName: "frame_passport_or_marriage",
-                    showsLandscapeHint: false
+                    overlayAssetName: GuidedCaptureStep.portraitCertificateOverlayAssetName
                 )
             ]
         case .businessLicense:
@@ -121,9 +116,8 @@ enum GuidedDocumentKind: String, Codable, CaseIterable {
                 GuidedCaptureStep(
                     stepIndex: 0,
                     title: "营业执照",
-                    bottomHint: "请对准线框横屏拍摄",
-                    overlayAssetName: "frame_business_license_diploma",
-                    showsLandscapeHint: true
+                    bottomHint: "请按提示，线框内拍摄",
+                    overlayAssetName: GuidedCaptureStep.portraitCertificateOverlayAssetName
                 )
             ]
         case .award:
@@ -132,8 +126,7 @@ enum GuidedDocumentKind: String, Codable, CaseIterable {
                     stepIndex: 0,
                     title: "奖状",
                     bottomHint: "请按提示，线框内拍摄",
-                    overlayAssetName: "frame_business_license_diploma",
-                    showsLandscapeHint: false
+                    overlayAssetName: GuidedCaptureStep.portraitCertificateOverlayAssetName
                 )
             ]
         }
@@ -141,9 +134,13 @@ enum GuidedDocumentKind: String, Codable, CaseIterable {
 }
 
 struct GuidedCaptureStep {
+    /// 多数竖排证件、营业执照等
+    static let portraitCertificateOverlayAssetName = "frame_business_license_diploma"
+    /// 配置「横拍通用 / 横版通用」等横拍场景线框
+    static let landscapeGenericOverlayAssetName = "frame_household_register"
+
     let stepIndex: Int
     let title: String
     let bottomHint: String
     let overlayAssetName: String
-    let showsLandscapeHint: Bool
 }

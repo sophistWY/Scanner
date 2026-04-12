@@ -2,7 +2,8 @@
 //  ScanLineProcessingOverlay.swift
 //  Scanner
 //
-//  设计稿：底边亮蓝实线 + 线上方浅蓝渐隐；仅在父视图（图片内容区）内移动。
+//  浅蓝渐变扫描带；仅在父视图（图片内容区）内移动。
+//  不再叠底边实线，避免在正反面合成等上下分栏预览时，实线落在接缝处被看成一条「黑线」。
 //  初始布局关闭隐式动画；单程 `.curveLinear` + `autoreverse` 匀速往返。
 //
 
@@ -19,11 +20,6 @@ final class ScanLineProcessingOverlay: UIView {
     }()
 
     private let gradientLayer = CAGradientLayer()
-    private let lineView: UIView = {
-        let v = UIView()
-        v.isUserInteractionEnabled = false
-        return v
-    }()
 
     private static let scanLineBlue = UIColor.appThemePrimary
 
@@ -35,19 +31,17 @@ final class ScanLineProcessingOverlay: UIView {
         isHidden = true
         addSubview(bandView)
         bandView.layer.addSublayer(gradientLayer)
-        bandView.addSubview(lineView)
 
         let c = Self.scanLineBlue
         gradientLayer.startPoint = CGPoint(x: 0.5, y: 0)
         gradientLayer.endPoint = CGPoint(x: 0.5, y: 1)
         gradientLayer.colors = [
             c.withAlphaComponent(0).cgColor,
-            c.withAlphaComponent(0.14).cgColor,
-            c.withAlphaComponent(0.32).cgColor
+            c.withAlphaComponent(0.12).cgColor,
+            c.withAlphaComponent(0.26).cgColor,
+            c.withAlphaComponent(0.34).cgColor
         ]
-        gradientLayer.locations = [0, 0.42, 1]
-
-        lineView.backgroundColor = c
+        gradientLayer.locations = [0, 0.38, 0.72, 1]
     }
 
     @available(*, unavailable)
@@ -65,14 +59,12 @@ final class ScanLineProcessingOverlay: UIView {
         }
 
         let bandH = min(max(h * 0.3, 56), h * 0.48)
-        let lineH: CGFloat = 2.5
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         bandView.alpha = 1
         bandView.frame = CGRect(x: 0, y: 0, width: w, height: bandH)
-        gradientLayer.frame = CGRect(x: 0, y: 0, width: w, height: max(bandH - lineH, 1))
-        lineView.frame = CGRect(x: 0, y: bandH - lineH, width: w, height: lineH)
+        gradientLayer.frame = CGRect(x: 0, y: 0, width: w, height: bandH)
         CATransaction.commit()
 
         isHidden = false

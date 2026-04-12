@@ -29,6 +29,50 @@ struct PdfTypeItem: Decodable, Hashable {
         url = try c.decodeIfPresent(String.self, forKey: .url)
     }
 
+    // MARK: - Guided capture（首页证件列表）
+
+    /// 身份证 / 银行卡 / 信用卡 走专用双面或单面流程；其余为 `nil`，用 `guidedCaptureStepForGenericCertificate()`。
+    var guidedCaptureKind: GuidedDocumentKind? {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if n.contains("银行卡") || n.contains("信用卡") { return .bankCard }
+        if n.contains("身份证") { return .nationalID }
+        return nil
+    }
+
+    /// 配置列表单步：竖排多数用 `frame_business_license_diploma`；横拍通用类用 `frame_household_register`。
+    func guidedCaptureStepForGenericCertificate() -> GuidedCaptureStep {
+        GuidedCaptureStep(
+            stepIndex: 0,
+            title: name,
+            bottomHint: prefersLandscapeShootingHint ? "请对准线框横屏拍摄" : "请按提示，线框内拍摄",
+            overlayAssetName: isLandscapeGenericCertificateItem
+                ? GuidedCaptureStep.landscapeGenericOverlayAssetName
+                : GuidedCaptureStep.portraitCertificateOverlayAssetName
+        )
+    }
+
+    /// 横拍通用 / 横版通用（横拍线框图，与竖排资源不同）。
+    private var isLandscapeGenericCertificateItem: Bool {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if n.contains("横拍通用") || n.contains("横版通用") { return true }
+        if pdftype == "11" { return true }
+        return false
+    }
+
+    /// 仅影响底部文案。结婚证/驾驶证/护照/行驶证等多为竖持；营业执照等提示横屏。
+    private var prefersLandscapeShootingHint: Bool {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let portraitFirst: [String] = [
+            "结婚证", "驾驶证", "护照", "行驶证", "户口本", "房产证", "毕业证", "竖版"
+        ]
+        if portraitFirst.contains(where: { n.contains($0) }) { return false }
+        if isLandscapeGenericCertificateItem { return true }
+        if n.contains("横版") || n.contains("横屏") { return true }
+        if n.contains("营业执照") { return true }
+        if pdftype == "1" { return true }
+        return false
+    }
+
     /// 接口不可用时用于展示与拍摄（与常见 `pdftype` 顺序对齐，图标见 `PdfTypeLocalIconMapper`）。
     static let offlineFallback: [PdfTypeItem] = [
         PdfTypeItem(pdftype: "0", name: "身份证"),
