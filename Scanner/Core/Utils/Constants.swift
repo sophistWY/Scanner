@@ -55,6 +55,14 @@ enum AppConstants {
         static let smallPadding: CGFloat = 8
         static let largePadding: CGFloat = 24
         static let cellHeight: CGFloat = 80
+
+        /// 文档编辑页 / 证件·卡片调整页：底部滤镜区域与主按钮行（导出等）之间的垂直间距。
+        static let editFilterBottomToPrimaryActionsSpacing: CGFloat = 22
+
+        /// Global loading + toast cards (shared style).
+        enum HUD {
+            static let cardBackground = UIColor(white: 0.18, alpha: 0.94)
+        }
     }
 
     /// Memory-friendly bounds for captured / imported scan images (pixel space, not points).

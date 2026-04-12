@@ -315,9 +315,27 @@ final class GuidedDocumentCaptureViewController: BaseViewController {
 
     private func finishCaptureFlow() {
         let name = "\(kind.defaultDocumentNamePrefix)_\(Date().formatted(style: .short))"
-        let adjust = GuidedDocumentAdjustViewController(originalImages: capturedOriginals, documentName: name, kind: kind)
+        let originals = capturedOriginals
+        let adjust = GuidedDocumentAdjustViewController(originalImages: originals, documentName: name, kind: kind)
         adjust.adjustDelegate = guidedAdjustDelegate
         navigationController?.pushViewController(adjust, animated: true)
+        resetCaptureSessionToInitialState()
+    }
+
+    /// 进入「调整图片」后，拍摄页恢复为与刚进入时一致，便于从编辑返回后继续新拍摄。
+    private func resetCaptureSessionToInitialState() {
+        capturedOriginals = []
+        currentStepIndex = 0
+        isProcessing = false
+        shutterButton.isEnabled = true
+        if isTorchOn {
+            isTorchOn = false
+            cameraManager.setTorch(on: false)
+            let icon = UIImage(systemName: "bolt.slash.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 20))
+            torchButton.setImage(icon, for: .normal)
+            torchButton.tintColor = .white
+        }
+        refreshStepUI()
     }
 }
 

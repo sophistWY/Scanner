@@ -71,7 +71,7 @@ final class ExportResultViewController: BaseViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        // 从编辑页 push 时若曾与全屏 HUD 同帧，SVProgressHUD 可能仍在收起；这里保证结果页不出现残留菊花。
+        // 从编辑页 push 时若曾与全屏 HUD 同帧，Loading 可能仍在收起；这里保证结果页不出现残留。
         hideLoading()
         customNavigationBar.configureBarAppearance(
             backgroundColor: .systemBackground,

@@ -82,7 +82,7 @@ final class SubscriptionViewController: BaseViewController {
     private let footerStack: UIStackView = {
         let s = UIStackView()
         s.axis = .horizontal
-        s.spacing = 28
+        s.spacing = 38
         s.alignment = .center
         return s
     }()
@@ -247,8 +247,13 @@ final class SubscriptionViewController: BaseViewController {
             do {
                 _ = try await ApplePayManager.shared.purchase(productId: ApplePayManager.shared.defaultSubscriptionProductId)
                 hideLoading()
-                showSuccess("订阅成功")
-                complete(with: .purchased)
+                if UserManager.shared.isVIP {
+                    showSuccess("订阅成功")
+                    complete(with: .purchased)
+                } else {
+                    showToast("订阅处理中，请稍后在会员中心查看状态")
+                    complete(with: .purchased)
+                }
             } catch ApplePayError.userCancelled {
                 hideLoading()
                 showToast("已取消")

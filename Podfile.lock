@@ -11,9 +11,6 @@ PODS:
   - SnapKit (5.7.1)
   - SQLiteRepair (1.2.2):
     - OptimizedSQLCipher
-  - SVProgressHUD (2.3.1):
-    - SVProgressHUD/Core (= 2.3.1)
-  - SVProgressHUD/Core (2.3.1)
   - WCDBSwift (1.0.2):
     - OptimizedSQLCipher
     - SQLiteRepair
@@ -24,7 +21,6 @@ DEPENDENCIES:
   - Moya
   - OpenCV (~> 4.3.0)
   - SnapKit
-  - SVProgressHUD
   - WCDBSwift
 
 SPEC REPOS:
@@ -37,7 +33,6 @@ SPEC REPOS:
     - OptimizedSQLCipher
     - SnapKit
     - SQLiteRepair
-    - SVProgressHUD
     - WCDBSwift
 
 SPEC CHECKSUMS:
@@ -49,9 +44,8 @@ SPEC CHECKSUMS:
   OptimizedSQLCipher: 92a1bf5cc94139e1da49de9c883ff9891bcd2a37
   SnapKit: d612e99e678a2d3b95bf60b0705ed0a35c03484a
   SQLiteRepair: 65ac4472667ac8cdeb93c3765f2fcae4dd259204
-  SVProgressHUD: 4837c74bdfe2e51e8821c397825996a8d7de6e22
   WCDBSwift: 6687dc2d4bebce2b237017ca367730f5f8409e67
 
-PODFILE CHECKSUM: df10c836c8c3fda0770211fe753ad97c85d541e5
+PODFILE CHECKSUM: e78e43d96fabf8887cf717f042c5f168b7a7b2c7
 
 COCOAPODS: 1.16.2

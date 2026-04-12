@@ -23,4 +23,10 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidEnterBackground(_ scene: UIScene) {
         FileHelper.shared.clearTempDirectory()
     }
+
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        Task { @MainActor in
+            await UserManager.shared.refreshVIPStatus()
+        }
+    }
 }

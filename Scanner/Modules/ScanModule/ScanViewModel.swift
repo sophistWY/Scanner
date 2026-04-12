@@ -128,6 +128,14 @@ final class ScanViewModel: BaseViewModel {
         updateStatus()
     }
 
+    /// 点击「完成」进入编辑页后，将拍摄会话恢复为与刚进入时一致（清空张数、检测框、快门可用）。
+    func resetSessionAfterHandoffToEdit() {
+        capturedImages.value = []
+        canCapture.value = true
+        detectedRectangle.value = nil
+        updateStatus()
+    }
+
     func toggleTorch() {
         isTorchOn.value.toggle()
     }

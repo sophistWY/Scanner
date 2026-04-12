@@ -111,6 +111,7 @@ final class ApplePayManager {
             let transaction = try checkVerified(verification)
             await UserManager.shared.applyVerifiedTransaction(transaction)
             await transaction.finish()
+            await UserManager.shared.syncVIPAfterStoreOperation()
             return transaction
         case .userCancelled:
             throw ApplePayError.userCancelled
@@ -127,6 +128,7 @@ final class ApplePayManager {
     func restorePurchases() async throws {
         try await AppStore.sync()
         try await refreshEntitlementsFromStore()
+        await UserManager.shared.syncVIPAfterStoreOperation()
     }
 
     func refreshEntitlementsFromStore() async throws {

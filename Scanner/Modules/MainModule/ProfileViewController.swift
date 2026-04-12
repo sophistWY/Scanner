@@ -69,6 +69,13 @@ final class ProfileViewController: BaseViewController {
         view.sendSubviewToBack(headerView)
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        Task { @MainActor in
+            await UserManager.shared.refreshVIPStatus()
+        }
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         headerGradientLayer.frame = headerView.bounds

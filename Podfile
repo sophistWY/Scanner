@@ -5,7 +5,6 @@ target 'Scanner' do
 
   # Layout
   pod 'SnapKit'
-  pod 'SVProgressHUD'
 
   # Database
   pod 'WCDBSwift'

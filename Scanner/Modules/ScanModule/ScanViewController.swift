@@ -433,6 +433,8 @@ final class ScanViewController: BaseViewController {
             sourceScanType: viewModel.scanType,
             delegate: editDelegate
         )
+        viewModel.resetSessionAfterHandoffToEdit()
+        rectangleDetector.reset()
     }
 
     @objc private func torchTapped() {

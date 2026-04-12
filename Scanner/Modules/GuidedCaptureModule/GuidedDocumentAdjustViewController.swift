@@ -265,6 +265,17 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
 
     override var prefersCustomNavigationBarHidden: Bool { false }
 
+    override func customNavigationBarLeftButtonTapped() {
+        guard !isExporting else { return }
+        if hasExportedSuccessfully {
+            navigationController?.popViewController(animated: true)
+            return
+        }
+        // 与 `EditViewController` 一致：返回挽留弹窗暂时关闭，直接返回。
+        adjustDelegate?.guidedAdjustViewControllerDidCancel(self)
+        navigationController?.popViewController(animated: true)
+    }
+
     override func setupUI() {
         super.setupUI()
         view.backgroundColor = .systemBackground
@@ -385,7 +396,7 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
         bottomToolbar.snp.makeConstraints { make in
             make.leading.equalToSuperview().offset(16)
             make.trailing.equalToSuperview().offset(-16)
-            make.bottom.equalTo(exportButton.snp.top).offset(-16)
+            make.bottom.equalTo(exportButton.snp.top).offset(-AppConstants.UI.editFilterBottomToPrimaryActionsSpacing)
         }
 
         exportButton.snp.makeConstraints { make in

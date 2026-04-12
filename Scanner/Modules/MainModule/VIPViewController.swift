@@ -150,6 +150,14 @@ final class VIPViewController: BaseViewController {
         updateStatusUI()
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        Task { @MainActor in
+            await UserManager.shared.refreshVIPStatus()
+            updateStatusUI()
+        }
+    }
+
     @objc private func vipStatusChanged() {
         updateStatusUI()
     }

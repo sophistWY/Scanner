@@ -11,7 +11,7 @@ enum A4CompositeRenderer {
 
     /// Tunable layout constants (design alignment).
     enum Metrics {
-        static let cardGap: CGFloat = 24
+        static let cardGap: CGFloat = 48
         static let marriageHorizontalMargin: CGFloat = 32
         static let marriageVerticalMargin: CGFloat = 40
         static let certificateInset: CGFloat = 24

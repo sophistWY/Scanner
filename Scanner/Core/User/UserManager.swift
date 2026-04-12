@@ -46,9 +46,22 @@ final class UserManager {
             await refreshVIPStatus()
             return
         }
-        guard let newExp = transaction.expirationDate else { return }
-        let merged = max(vipExpirationDate ?? .distantPast, newExp)
-        persistExpiration(merged)
+        if let newExp = transaction.expirationDate {
+            let merged = max(vipExpirationDate ?? .distantPast, newExp)
+            persistExpiration(merged)
+        } else {
+            // Rare: subscription without `expirationDate` on the transaction; re-scan entitlements.
+            await refreshVIPStatus()
+        }
+    }
+
+    /// After purchase or restore, entitlements can lag briefly; re-read StoreKit if still non-VIP.
+    func syncVIPAfterStoreOperation() async {
+        if isVIP { return }
+        await refreshVIPStatus()
+        guard !isVIP else { return }
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        await refreshVIPStatus()
     }
 
     /// Sets VIP expiry from StoreKit entitlement scan (restore / sync). `nil` clears VIP.
