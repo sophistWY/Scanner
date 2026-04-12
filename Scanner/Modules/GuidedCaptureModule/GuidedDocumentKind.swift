@@ -136,7 +136,7 @@ enum GuidedDocumentKind: String, Codable, CaseIterable {
 struct GuidedCaptureStep {
     /// 多数竖排证件、营业执照等
     static let portraitCertificateOverlayAssetName = "frame_business_license_diploma"
-    /// 配置「横拍通用 / 横版通用」等横拍场景线框
+    /// 配置「横拍通用 / 横版通用 / 横排通用」等横拍场景线框
     static let landscapeGenericOverlayAssetName = "frame_household_register"
 
     let stepIndex: Int

@@ -39,7 +39,7 @@ struct PdfTypeItem: Decodable, Hashable {
         return nil
     }
 
-    /// 配置列表单步：竖排多数用 `frame_business_license_diploma`；横拍通用类用 `frame_household_register`。
+    /// 配置列表单步：竖排多数用 `frame_business_license_diploma`；横拍/横版/横排通用类用 `frame_household_register`。
     func guidedCaptureStepForGenericCertificate() -> GuidedCaptureStep {
         GuidedCaptureStep(
             stepIndex: 0,
@@ -51,10 +51,10 @@ struct PdfTypeItem: Decodable, Hashable {
         )
     }
 
-    /// 横拍通用 / 横版通用（横拍线框图，与竖排资源不同）。
+    /// 横拍通用 / 横版通用 / 横排通用（横拍线框图，与竖排资源不同；接口文案可能是「横排」）。
     private var isLandscapeGenericCertificateItem: Bool {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if n.contains("横拍通用") || n.contains("横版通用") { return true }
+        if n.contains("横拍通用") || n.contains("横版通用") || n.contains("横排通用") { return true }
         if pdftype == "11" { return true }
         return false
     }
@@ -86,6 +86,6 @@ struct PdfTypeItem: Decodable, Hashable {
         PdfTypeItem(pdftype: "8", name: "结婚证"),
         PdfTypeItem(pdftype: "9", name: "房产证"),
         PdfTypeItem(pdftype: "10", name: "竖版通用"),
-        PdfTypeItem(pdftype: "11", name: "横版通用")
+        PdfTypeItem(pdftype: "11", name: "横排通用")
     ]
 }

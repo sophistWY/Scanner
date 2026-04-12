@@ -71,15 +71,8 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
 
     private lazy var scrollView: UIScrollView = {
         let s = UIScrollView()
-        // 与 `view` / 导航栏同色，避免灰底与上下白区间形成高对比 1px 缝，看起来像「系统黑线」。
-        s.backgroundColor = .systemBackground
+        s.backgroundColor = UIColor(hex: 0xF6F6F6)
         s.alwaysBounceVertical = true
-        s.showsVerticalScrollIndicator = false
-        s.showsHorizontalScrollIndicator = false
-        if #available(iOS 13.1, *) {
-            s.automaticallyAdjustsScrollIndicatorInsets = false
-        }
-        s.contentInsetAdjustmentBehavior = .never
         return s
     }()
 
@@ -112,9 +105,6 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
         s.spacing = 10
         s.alignment = .center
         s.distribution = .fill
-        // 裁剪按钮阴影，避免向上渗入上方 `scrollView` 预览区底部，在灰底上像一条黑线。
-        s.clipsToBounds = true
-        s.backgroundColor = .systemBackground
         return s
     }()
 
