@@ -68,8 +68,6 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
     /// 拍摄完成进入本页后，先展示 A4 合成原图再跑接口。
     private var needsInitialServerProcessing = false
     private var isServerProcessing = false
-    /// 接口顺序处理时是否显示全屏 HUD（重裁剪后需要；首次进入仅扫描线动画）。
-    private var serverSequentialRunShowsLoadingHUD = false
 
     private lazy var scrollView: UIScrollView = {
         let s = UIScrollView()
@@ -448,7 +446,6 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
     private func runInitialServerProcessing() {
         guard needsInitialServerProcessing, !rawCaptureImages.isEmpty else { return }
         needsInitialServerProcessing = false
-        serverSequentialRunShowsLoadingHUD = false
         runSequentialServerProcessingFromCurrentRaw()
     }
 
@@ -480,9 +477,6 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
         exportButton.isEnabled = false
         setToolbarInteractionEnabled(false)
         scanOverlay.startAnimating()
-        if serverSequentialRunShowsLoadingHUD {
-            showLoading(message: "处理中…")
-        }
 
         let steps = kind.stepCount
         var processed: [UIImage] = []
@@ -508,9 +502,6 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
                         self.isServerProcessing = false
                         self.exportButton.isEnabled = true
                         self.setToolbarInteractionEnabled(true)
-                        if self.serverSequentialRunShowsLoadingHUD {
-                            self.hideLoading()
-                        }
                         HUD.shared.showToast((error as? LocalizedError)?.errorDescription ?? "处理失败")
                     }
                 }
@@ -529,9 +520,6 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
                 isServerProcessing = false
                 exportButton.isEnabled = true
                 setToolbarInteractionEnabled(true)
-                if serverSequentialRunShowsLoadingHUD {
-                    hideLoading()
-                }
                 HUD.shared.showToast("处理结果不完整")
                 return
             }
@@ -542,9 +530,6 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
                 isServerProcessing = false
                 exportButton.isEnabled = true
                 setToolbarInteractionEnabled(true)
-                if serverSequentialRunShowsLoadingHUD {
-                    hideLoading()
-                }
                 return
             }
             imgs = [f]
@@ -554,9 +539,6 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
             isServerProcessing = false
             exportButton.isEnabled = true
             setToolbarInteractionEnabled(true)
-            if serverSequentialRunShowsLoadingHUD {
-                hideLoading()
-            }
             HUD.shared.showToast("合成失败")
             return
         }
@@ -565,10 +547,6 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
         isServerProcessing = false
         exportButton.isEnabled = true
         setToolbarInteractionEnabled(true)
-        if serverSequentialRunShowsLoadingHUD {
-            hideLoading()
-        }
-        serverSequentialRunShowsLoadingHUD = false
         editDirty = true
         persistSandbox()
         persistToDatabaseAfterInitialProcessing()
@@ -656,7 +634,6 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
 
         appliedFilterIndex = 0
         updateFilterSelectionUI()
-        serverSequentialRunShowsLoadingHUD = true
         runSequentialServerProcessingFromCurrentRaw()
     }
 

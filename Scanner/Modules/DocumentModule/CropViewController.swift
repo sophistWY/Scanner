@@ -91,9 +91,9 @@ final class CropViewController: BaseViewController, UIScrollViewDelegate, UIGest
         /// 页码区与底栏顶
         static let topInset: CGFloat = 18
         /// 页码区域底边与下方旋转/确认按钮区域顶边的间距（多图）
-        static let pagerToToolsSpacing: CGFloat = 20
+        static let pagerToToolsSpacing: CGFloat = 10
         /// 按钮区底到安全区底（Home 条上方留白）
-        static let safeBottomInset: CGFloat = 24
+        static let safeBottomInset: CGFloat = 10
         static let horizontalInset: CGFloat = 15
     }
 
@@ -282,7 +282,7 @@ final class CropViewController: BaseViewController, UIScrollViewDelegate, UIGest
         // hitTest 会漏掉子视图，触摸落到透明 bottomBar 上被吃掉（上一张/下一张/确认都无响应）。
         pagerRow.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
-            make.top.equalTo(10)
+            make.top.equalTo(15)
             if pageCount == 1 {
                 make.height.equalTo(0)
             }
@@ -508,7 +508,6 @@ final class CropViewController: BaseViewController, UIScrollViewDelegate, UIGest
             return
         }
 
-        HUD.shared.showLoading(message: "处理中…")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             var outputs: [UIImage] = []
@@ -518,7 +517,6 @@ final class CropViewController: BaseViewController, UIScrollViewDelegate, UIGest
                 outputs.append(cropped)
             }
             DispatchQueue.main.async {
-                HUD.shared.hideLoading()
                 self.onCrop(outputs, true)
                 self.dismissOrPopFromCropFlow()
             }
