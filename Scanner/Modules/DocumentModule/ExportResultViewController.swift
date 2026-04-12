@@ -247,7 +247,7 @@ private final class ExportOptionsSheetViewController: AppBottomSheetViewControll
         )
         let shareBtn = makeActionButton(
             title: "PDF发送到微信",
-            image: wechatPlaceholderImage()
+            image: UIImage(named: "weixin")?.withRenderingMode(.alwaysOriginal)
         )
 
         saveBtn.addTarget(self, action: #selector(saveTapped), for: .touchUpInside)
@@ -280,12 +280,6 @@ private final class ExportOptionsSheetViewController: AppBottomSheetViewControll
         }
         button.configuration = config
         return button
-    }
-
-    private func wechatPlaceholderImage() -> UIImage? {
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
-        guard let raw = UIImage(systemName: "message.fill", withConfiguration: symbolConfig) else { return nil }
-        return raw.withTintColor(UIColor(red: 0.09, green: 0.64, blue: 0.29, alpha: 1), renderingMode: .alwaysOriginal)
     }
 
     @objc private func saveTapped() {
