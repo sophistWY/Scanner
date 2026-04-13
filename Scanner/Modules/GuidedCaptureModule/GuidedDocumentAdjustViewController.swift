@@ -577,7 +577,9 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
         guard let column = gesture.view, let idx = GuidedAdjustFilter(rawValue: column.tag) else { return }
         appliedFilterIndex = idx.rawValue
         updateFilterSelectionUI()
-        showLoading(message: "处理中…")
+        exportButton.isEnabled = false
+        setToolbarInteractionEnabled(false)
+        scanOverlay.startAnimating()
         EditOpenCVQueue.shared.async { [weak self] in
             guard let self else { return }
             let result: UIImage = autoreleasepool {
@@ -591,7 +593,9 @@ final class GuidedDocumentAdjustViewController: BaseViewController {
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.hideLoading()
+                self.scanOverlay.stopAnimating()
+                self.exportButton.isEnabled = true
+                self.setToolbarInteractionEnabled(true)
                 self.displayImage = result
                 self.imageView.image = result
                 self.editDirty = true
