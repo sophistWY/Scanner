@@ -2,7 +2,7 @@
 //  CertificatePdfTypeSelectionViewController.swift
 //  Scanner
 //
-//  证件类型列表：数据来自 `/common/configget`（pdftype.json），图标本地 `doc_type_*`。
+//  证件类型列表：数据来自 `/common/configget`（pdftype.json）；先铺本地图（与 OSS basename 一致）再异步换远程，避免首帧闪动。
 //
 
 import UIKit
@@ -144,6 +144,9 @@ private final class CertificatePdfTypeCell: UICollectionViewCell {
 
     static let reuseIdentifier = "CertificatePdfTypeCell"
 
+    /// 避免复用时异步回调套错图。
+    private var iconRequestKey: String?
+
     private let card = UIView()
     private let iconView = UIImageView()
     private let titleLabel = UILabel()
@@ -184,9 +187,39 @@ private final class CertificatePdfTypeCell: UICollectionViewCell {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        iconRequestKey = nil
+        iconView.image = nil
+    }
+
     func configure(with item: PdfTypeItem) {
         titleLabel.text = item.name
-        let name = PdfTypeLocalIconMapper.assetName(forPdfType: item.pdftype)
-        iconView.image = UIImage(named: name)
+        applyLocalIcon(for: item)
+
+        let trimmed = item.icon?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty, let url = URL(string: trimmed) else {
+            iconRequestKey = nil
+            return
+        }
+        iconRequestKey = trimmed
+        let requestKey = trimmed
+        UIImage.load(from: url) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self, self.iconRequestKey == requestKey else { return }
+                if case .success(let image) = result {
+                    self.iconView.image = image
+                }
+            }
+        }
+    }
+
+    private func applyLocalIcon(for item: PdfTypeItem) {
+        let asset = PdfTypeLocalIconMapper.assetName(
+            forPdfType: item.pdftype,
+            displayName: item.name,
+            iconURLString: item.icon
+        )
+        iconView.image = UIImage(named: asset)
     }
 }
