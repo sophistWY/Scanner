@@ -15,13 +15,13 @@ public enum OnboardingSubscriptionLayoutConstants {
     /// Fixed distance from the bottom safe area to the primary button's bottom edge.
     public static let bottomOffsetFromSafeArea: CGFloat = 100
 
-    public static let descriptionTextWidth: CGFloat = 290
-    public static let descriptionTextHeight: CGFloat = 108
+    public static let descriptionTextWidth: CGFloat = 308
+    public static let descriptionTextHeight: CGFloat = 118
     public static let descriptionToButtonSpacing: CGFloat = 30
     public static let descriptionLineSpacing: CGFloat = 6
 
     public static let primaryButtonTitleFontSize: CGFloat = 16
-    public static let descriptionFontSize: CGFloat = 11
+    public static let descriptionFontSize: CGFloat = 12
     public static let subscriptionRestoreFontSize: CGFloat = 12
     public static let subscriptionFooterFontSize: CGFloat = 11
 

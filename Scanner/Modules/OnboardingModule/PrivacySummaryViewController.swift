@@ -217,13 +217,13 @@ final class PrivacySummaryViewController: BaseViewController, UITextViewDelegate
             .paragraphStyle: ps
         ]))
         appendPlain("，并充分理解协议条款内容。我们将严格按照您同意的各项条款使用您的信息，以便为您提供更好的服务。")
-
-        appendPlain("\n\n使用APP时将申请并使用以下权限：\n")
+        // \n
+        appendPlain("\n使用APP时将申请并使用以下权限：\n")
 
         appendPlain("· 相机权限\n")
-        appendPlain("用于拍摄照片或录视频", color: grey)
+        appendPlain("用于拍摄照片或录视频\n", color: grey)
         appendPlain("· 存储权限\n")
-        appendPlain("从相册选择照片或视频并存储照片或视频", color: grey)
+        appendPlain("从相册选择照片或视频并存储照片或视频\n", color: grey)
         appendPlain("本产品所使用权限为合理使用场景，不会默认开启，如您已阅读并同意，请点击同意开始使用！")
 
         return m

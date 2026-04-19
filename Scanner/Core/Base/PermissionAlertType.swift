@@ -2,7 +2,7 @@
 //  PermissionAlertType.swift
 //  Scanner
 //
-//  Copy for rationale (before system dialog) and denied (引导去设置).
+//  权限已被拒绝时：引导去设置的文案（与 BaseViewController.showPermissionAlert 等一致）。
 //
 
 import Foundation
@@ -11,30 +11,6 @@ enum PermissionAlertType {
     case camera
     case photoLibrary
     case saveToPhotoLibrary
-
-    // MARK: - Rationale (自定义弹窗 → 再调系统权限)
-
-    var rationaleTitle: String {
-        switch self {
-        case .camera:
-            return "想使用你的相机"
-        case .photoLibrary:
-            return "想访问你的相册"
-        case .saveToPhotoLibrary:
-            return "想保存到相册"
-        }
-    }
-
-    var rationaleMessage: String {
-        switch self {
-        case .camera:
-            return "扫描文档需要使用相机，是否允许此应用访问？"
-        case .photoLibrary:
-            return "上传照片需访问你的相册，是否允许此应用访问？"
-        case .saveToPhotoLibrary:
-            return "导出内容保存到相册需要访问权限，是否允许？"
-        }
-    }
 
     // MARK: - Denied / 设置
 

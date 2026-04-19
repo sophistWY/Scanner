@@ -2,7 +2,7 @@
 //  PermissionHelper.swift
 //  Scanner
 //
-//  未授权：先展示与设计稿一致的说明弹窗（不允许 / 允许），用户点「允许」后再调系统权限。
+//  首次请求：直接调系统权限 API，由系统弹窗。
 //  已拒绝：引导去设置（取消 / 去设置），与 BaseViewController.showPermissionAlert 一致。
 //
 
@@ -22,13 +22,9 @@ final class PermissionHelper {
         case .authorized:
             completion(true)
         case .notDetermined:
-            showRationaleAlert(from: vc, type: .camera, onAllow: {
-                AVCaptureDevice.requestAccess(for: .video) { granted in
-                    DispatchQueue.main.async { completion(granted) }
-                }
-            }, onDeny: {
-                completion(false)
-            })
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                DispatchQueue.main.async { completion(granted) }
+            }
         case .denied, .restricted:
             showDeniedAlert(from: vc, type: .camera, message: "请在设置中允许访问相机以使用扫描功能")
             completion(false)
@@ -45,15 +41,11 @@ final class PermissionHelper {
         case .authorized, .limited:
             completion(true)
         case .notDetermined:
-            showRationaleAlert(from: vc, type: .photoLibrary, onAllow: {
-                PHPhotoLibrary.requestAuthorization(for: .readWrite) { newStatus in
-                    DispatchQueue.main.async {
-                        completion(newStatus == .authorized || newStatus == .limited)
-                    }
+            PHPhotoLibrary.requestAuthorization(for: .readWrite) { newStatus in
+                DispatchQueue.main.async {
+                    completion(newStatus == .authorized || newStatus == .limited)
                 }
-            }, onDeny: {
-                completion(false)
-            })
+            }
         case .denied, .restricted:
             showDeniedAlert(from: vc, type: .photoLibrary, message: "请在设置中允许访问相册以导入图片")
             completion(false)
@@ -69,15 +61,11 @@ final class PermissionHelper {
         case .authorized, .limited:
             completion(true)
         case .notDetermined:
-            showRationaleAlert(from: vc, type: .saveToPhotoLibrary, onAllow: {
-                PHPhotoLibrary.requestAuthorization(for: .addOnly) { newStatus in
-                    DispatchQueue.main.async {
-                        completion(newStatus == .authorized || newStatus == .limited)
-                    }
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { newStatus in
+                DispatchQueue.main.async {
+                    completion(newStatus == .authorized || newStatus == .limited)
                 }
-            }, onDeny: {
-                completion(false)
-            })
+            }
         case .denied, .restricted:
             showDeniedAlert(from: vc, type: .saveToPhotoLibrary, message: "请在设置中允许访问相册以保存导出内容")
             completion(false)
@@ -86,26 +74,7 @@ final class PermissionHelper {
         }
     }
 
-    // MARK: - Private — 自定义弹窗
-
-    private func showRationaleAlert(
-        from vc: UIViewController,
-        type: PermissionAlertType,
-        onAllow: @escaping () -> Void,
-        onDeny: @escaping () -> Void
-    ) {
-        DispatchQueue.main.async {
-            AppModalDialog.present(
-                from: vc,
-                title: type.rationaleTitle,
-                message: type.rationaleMessage,
-                secondaryTitle: "不允许",
-                primaryTitle: "允许",
-                onSecondary: onDeny,
-                onPrimary: onAllow
-            )
-        }
-    }
+    // MARK: - Private — 已拒绝时引导去设置
 
     private func showDeniedAlert(from vc: UIViewController, type: PermissionAlertType, message: String) {
         DispatchQueue.main.async {

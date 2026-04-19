@@ -38,6 +38,8 @@ final class CapturedImagesPreviewController: BaseViewController {
         return label
     }()
 
+    // 底部滤镜条：暂时隐藏，恢复时取消注释并还原 setupUI / setupConstraints / filterTapped
+    /*
     private lazy var filterScrollView: UIScrollView = {
         let sv = UIScrollView()
         sv.showsHorizontalScrollIndicator = false
@@ -61,6 +63,7 @@ final class CapturedImagesPreviewController: BaseViewController {
         }
         return stack
     }()
+    */
 
     private var currentPage: Int = 0 {
         didSet { pageLabel.text = "\(currentPage + 1) / \(images.count)" }
@@ -111,13 +114,14 @@ final class CapturedImagesPreviewController: BaseViewController {
 
         view.addSubview(collectionView)
         view.addSubview(pageLabel)
-        view.addSubview(filterScrollView)
-        filterScrollView.addSubview(filterBar)
+        // view.addSubview(filterScrollView)
+        // filterScrollView.addSubview(filterBar)
 
         currentPage = 0
     }
 
     override func setupConstraints() {
+        /*
         filterScrollView.snp.makeConstraints { make in
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(view.safeAreaLayoutGuide).offset(-8)
@@ -128,10 +132,11 @@ final class CapturedImagesPreviewController: BaseViewController {
             make.edges.equalToSuperview().inset(UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
             make.height.equalToSuperview()
         }
+        */
 
         pageLabel.snp.makeConstraints { make in
             make.centerX.equalToSuperview()
-            make.bottom.equalTo(filterScrollView.snp.top).offset(-12)
+            make.bottom.equalTo(view.safeAreaLayoutGuide).offset(-12)
             make.height.equalTo(24)
         }
 
@@ -184,6 +189,7 @@ final class CapturedImagesPreviewController: BaseViewController {
         }
     }
 
+    /*
     @objc private func filterTapped(_ sender: UIButton) {
         guard currentPage < originalJPEGs.count else { return }
         let filterTypes = ImageFilterType.allCases
@@ -206,6 +212,7 @@ final class CapturedImagesPreviewController: BaseViewController {
             }
         }
     }
+    */
 }
 
 // MARK: - UICollectionView
