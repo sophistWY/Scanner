@@ -2,102 +2,81 @@
 //  ScanLineProcessingOverlay.swift
 //  Scanner
 //
-//  设计稿：底边亮蓝实线 + 线上方浅蓝渐隐；仅在父视图（图片内容区）内移动。
-//  初始布局关闭隐式动画；单程 `.curveLinear` + `autoreverse` 匀速往返。
+//  智能优化进行中：使用 Lottie 上下扫描动画，覆盖在图片内容区（与 `PageImageCell` 布局一致）。
+//
+//  含图片资源的 JSON 必须与 `images/` 同目录；加载时用 `filepath` + `FilepathImageProvider`，
+//  否则默认 `BundleImageProvider(searchPath: nil)` 无法在 `Resource/Animation/images/` 下找到素材。
 //
 
 import UIKit
+import Lottie
 
 final class ScanLineProcessingOverlay: UIView {
 
-    private let bandView: UIView = {
-        let v = UIView()
-        v.isUserInteractionEnabled = false
-        v.backgroundColor = .clear
-        v.clipsToBounds = true
-        return v
-    }()
-
-    private let gradientLayer = CAGradientLayer()
-    private let lineView: UIView = {
-        let v = UIView()
-        v.isUserInteractionEnabled = false
-        return v
-    }()
-
-    private static let scanLineBlue = UIColor.appThemePrimary
+    private let animationView: LottieAnimationView
 
     override init(frame: CGRect) {
+        let loaded = Self.loadScanLineAnimation()
+        animationView = LottieAnimationView(animation: loaded.animation, imageProvider: loaded.imageProvider)
         super.init(frame: frame)
         isUserInteractionEnabled = false
         backgroundColor = .clear
         clipsToBounds = true
         isHidden = true
-        addSubview(bandView)
-        bandView.layer.addSublayer(gradientLayer)
-        bandView.addSubview(lineView)
+        animationView.contentMode = .scaleAspectFill
+        animationView.backgroundColor = .clear
+        animationView.isUserInteractionEnabled = false
+        animationView.loopMode = .loop
+        addSubview(animationView)
+    }
 
-        let c = Self.scanLineBlue
-        gradientLayer.startPoint = CGPoint(x: 0.5, y: 0)
-        gradientLayer.endPoint = CGPoint(x: 0.5, y: 1)
-        gradientLayer.colors = [
-            c.withAlphaComponent(0).cgColor,
-            c.withAlphaComponent(0.14).cgColor,
-            c.withAlphaComponent(0.32).cgColor
-        ]
-        gradientLayer.locations = [0, 0.42, 1]
+    /// 从主 bundle 解析 `data.json` 路径，再按「JSON 所在目录」解析相对路径图片（`images/img_0.png`）。
+    private static func loadScanLineAnimation() -> (animation: LottieAnimation?, imageProvider: AnimationImageProvider) {
+        let bundle = Bundle.main
+        let subdirectoryCandidates = ["Resource/Animation", "Animation"]
+        for sub in subdirectoryCandidates {
+            if let jsonURL = bundle.url(forResource: "data", withExtension: "json", subdirectory: sub) {
+                let animationFolder = jsonURL.deletingLastPathComponent().path
+                let animation = LottieAnimation.filepath(jsonURL.path)
+                let imageProvider = FilepathImageProvider(filepath: animationFolder)
+                return (animation, imageProvider)
+            }
+        }
+        if let jsonURL = bundle.url(forResource: "data", withExtension: "json") {
+            let animationFolder = jsonURL.deletingLastPathComponent().path
+            let animation = LottieAnimation.filepath(jsonURL.path)
+            let imageProvider = FilepathImageProvider(filepath: animationFolder)
+            return (animation, imageProvider)
+        }
+        let animation = LottieAnimation.named("data", bundle: bundle, subdirectory: "Resource/Animation")
+        let imageProvider = BundleImageProvider(bundle: bundle, searchPath: "Resource/Animation")
+        return (animation, imageProvider)
+    }
 
-        lineView.backgroundColor = c
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        animationView.frame = bounds
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
     func startAnimating() {
-        bandView.layer.removeAllAnimations()
         layoutIfNeeded()
 
         let w = bounds.width
         let h = bounds.height
-        guard w > 1, h > 1 else {
+        guard w > 1, h > 1, animationView.animation != nil else {
             isHidden = true
             return
         }
 
-        let bandH = min(max(h * 0.3, 56), h * 0.48)
-        let lineH: CGFloat = 2.5
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        bandView.alpha = 1
-        bandView.frame = CGRect(x: 0, y: 0, width: w, height: bandH)
-        gradientLayer.frame = CGRect(x: 0, y: 0, width: w, height: max(bandH - lineH, 1))
-        lineView.frame = CGRect(x: 0, y: bandH - lineH, width: w, height: lineH)
-        CATransaction.commit()
-
         isHidden = false
-
-        let endY = h - bandH
-        // 单程时间略长，整体更从容；`.curveLinear` 保证单程内严格匀速（避免 keyframe 中点速度突变带来的「皮球感」）。
-        // `autoreverse` 沿同一条线性路径返回，往返对称。
-        let oneWayDuration: TimeInterval = 1.05
-
-        UIView.animate(
-            withDuration: oneWayDuration,
-            delay: 0,
-            options: [.repeat, .autoreverse, .curveLinear],
-            animations: {
-                self.bandView.frame.origin.y = endY
-            }
-        )
+        animationView.play()
     }
 
     func stopAnimating() {
-        bandView.layer.removeAllAnimations()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        bandView.alpha = 1
-        CATransaction.commit()
+        animationView.stop()
         isHidden = true
     }
 }

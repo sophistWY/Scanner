@@ -6,6 +6,9 @@ target 'Scanner' do
   # Layout
   pod 'SnapKit'
 
+  # Animation
+  pod 'lottie-ios'
+
   # Database
   pod 'WCDBSwift'
 
